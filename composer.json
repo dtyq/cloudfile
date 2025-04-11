@@ -1,7 +1,7 @@
 {
     "name": "dtyq/cloudfile",
     "description": "Package description here.",
-    "license": "MIT",
+    "license": "Apache License 2.0",
     "authors": [
         {
             "name": "lihq1403",
@@ -65,7 +65,7 @@
             "config": "Dtyq\\CloudFile\\Hyperf\\ConfigProvider"
         },
         "branch-alias": {
-            "dev-master": "0.0-dev"
+            "dev-master": "0.1-dev"
         }
     }
 }
