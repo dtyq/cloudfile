@@ -10,6 +10,7 @@ namespace Dtyq\CloudFile\Tests\FileService;
 use Dtyq\CloudFile\Kernel\FilesystemProxy;
 use Dtyq\CloudFile\Kernel\Struct\AppendUploadFile;
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
 use Dtyq\CloudFile\Tests\CloudFileBaseTest;
 use Exception;
@@ -143,6 +144,55 @@ class FileServiceTest extends CloudFileBaseTest
     {
         $filesystem = $this->getFilesystem();
 
+        // Use new unified ImageProcessOptions format (consistent with OSS/TOS)
+        $imageOptions = (new ImageProcessOptions())
+            ->resize([
+                'width' => 100,
+                'height' => 100,
+                'mode' => 'lfit',
+                'limit' => 100,
+                'short' => 100,
+            ])->format('webp');
+
+        $options = ['image' => $imageOptions];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $list = $filesystem->getLinks([
+            'easy-file/easy.jpeg',
+        ], [], 7200, $options);
+        var_dump($list);
+        $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
+    }
+
+    public function testGetLinksImageTOS()
+    {
+        $filesystem = $this->getFilesystem('file_service_tos_test');
+
+        // Use new unified ImageProcessOptions format (consistent with OSS/TOS)
+        $imageOptions = (new ImageProcessOptions())
+            ->resize([
+                'width' => 100,
+                'height' => 100,
+                'mode' => 'lfit',
+                'limit' => 100,
+                'short' => 100,
+            ])->format('webp');
+
+        $options = ['image' => $imageOptions, 'internal' => true];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $list = $filesystem->getLinks([
+            'easy-file/tos_demo.png',
+        ], [], 7200, $options);
+        var_dump($list);
+        $this->assertArrayHasKey('easy-file/tos_demo.png', $list);
+    }
+
+    public function testGetLinksImageLegacyFormat()
+    {
+        $filesystem = $this->getFilesystem();
+
+        // Test legacy format for backward compatibility
         $options = [
             'image' => [
                 [
@@ -162,6 +212,28 @@ class FileServiceTest extends CloudFileBaseTest
         $list = $filesystem->getLinks([
             'easy-file/easy.jpeg',
         ], [], 7200, $options);
+        var_dump($list);
+        $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
+    }
+
+    public function testGetLinksImageWithMultipleOperations()
+    {
+        $filesystem = $this->getFilesystem();
+
+        // Test multiple operations chained together
+        $imageOptions = (new ImageProcessOptions())
+            ->resize(['width' => 800, 'height' => 600, 'mode' => 'lfit'])
+            ->quality(85)
+            ->format('webp')
+            ->bright(10);
+
+        $options = ['image' => $imageOptions];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $list = $filesystem->getLinks([
+            'easy-file/easy.jpeg',
+        ], [], 7200, $options);
+        var_dump($list);
         $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
     }
 

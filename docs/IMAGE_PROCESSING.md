@@ -2,7 +2,12 @@
 
 ## 概述
 
-本项目提供了统一的图片处理接口，抹平阿里云 OSS 和火山引擎 TOS 等云存储服务商的差异。
+本项目提供了统一的图片处理接口，抹平阿里云 OSS、火山引擎 TOS 和文件服务等云存储服务商的差异。
+
+**支持的存储平台：**
+- ✅ 阿里云 OSS
+- ✅ 火山引擎 TOS
+- ✅ 文件服务（File Service，支持底层 OSS/TOS）
 
 **前端开发者请查看：** [IMAGE_PROCESSING_API.md](./IMAGE_PROCESSING_API.md)
 
@@ -58,12 +63,29 @@ $fileLinks = $filesystem->getFileLinks(
 ### 方式二：旧方式（向下兼容）
 
 ```php
-// 使用原始处理字符串
+// 使用原始处理字符串（适用于 OSS/TOS）
 $fileLinks = $filesystem->getFileLinks(
     ['path/to/image.jpg'],
     [],
     3600,
     ['image' => ['process' => 'image/resize,w_300/quality,q_90/format,webp']]
+);
+
+// 文件服务的旧格式（向下兼容）
+$fileLinks = $filesystem->getFileLinks(
+    ['path/to/image.jpg'],
+    [],
+    3600,
+    ['image' => [
+        [
+            'type' => 'resize',
+            'params' => [
+                'w' => 300,
+                'h' => 200,
+                'm' => 'lfit',
+            ],
+        ],
+    ]]
 );
 ```
 
@@ -472,6 +494,8 @@ try {
 
 如果您之前使用的是原始字符串方式，可以继续使用：
 
+### OSS/TOS 旧格式
+
 ```php
 // 旧方式仍然支持
 $fileLinks = $filesystem->getFileLinks(
@@ -485,6 +509,35 @@ $fileLinks = $filesystem->getFileLinks(
 $imageOptions = (new ImageProcessOptions())
     ->raw('image/resize,w_300/quality,q_90/format,webp');
 ```
+
+### 文件服务旧格式
+
+```php
+// 文件服务的旧格式（操作数组）
+$fileLinks = $filesystem->getFileLinks(
+    ['path/to/image.jpg'],
+    [],
+    3600,
+    ['image' => [
+        [
+            'type' => 'resize',
+            'params' => [
+                'w' => 300,
+                'h' => 200,
+                'm' => 'lfit',
+            ],
+        ],
+        [
+            'type' => 'quality',
+            'params' => [
+                'q' => 90,
+            ],
+        ],
+    ]]
+);
+```
+
+**注意：** 推荐使用统一的 `ImageProcessOptions` 格式，以获得更好的类型提示和参数验证。
 
 ## 注意事项
 
@@ -506,24 +559,47 @@ $imageOptions = (new ImageProcessOptions())
 1. **ImageProcessOptions** - 统一的图片处理选项类
    - 提供链式调用 API
    - 包含完整的参数验证逻辑
-2. **ImageProcessInterface** - 图片处理器接口
+2. **ImageProcessInterface** - 图片处理器接口（OSS/TOS）
    - `buildProcessString()` - 构建服务商特定的处理字符串
    - `getParameterName()` - 获取参数名称（如 'x-oss-process'）
 3. **OSSImageProcessor** - 阿里云 OSS 图片处理器实现
 4. **TOSImageProcessor** - 火山引擎 TOS 图片处理器实现
+5. **FileServiceExpand** - 文件服务扩展
+   - 将 `ImageProcessOptions` 转换为数组格式
+   - 传递给文件服务后端 API
 
 ### 工作流程
+
+#### OSS/TOS 直连方式
 
 ```
 用户代码
   ↓
 ImageProcessOptions (统一参数)
   ↓
+OSSExpand/TOSExpand
+  ↓
 ImageProcessor (转换器)
   ↓
 服务商特定的处理字符串
   ↓
-云存储 API
+云存储 SDK
+```
+
+#### 文件服务方式
+
+```
+用户代码
+  ↓
+ImageProcessOptions (统一参数)
+  ↓
+FileServiceExpand
+  ↓
+toArray() 转换为数组
+  ↓
+文件服务后端 API
+  ↓
+后端根据实际平台调用 OSS/TOS
 ```
 
 ## 扩展性
