@@ -95,25 +95,33 @@ $fileLinks = $filesystem->getFileLinks(
 
 ### 验证规则
 
+**数值范围：**
 - **quality**: 1-100
-- **rotate**: 0-360
-- **bright**: -100 到 100
-- **contrast**: -100 到 100
-- **sharpen**: 0-300
-- **circle**: 1-4096
-- **roundedCorners**: 1-4096
-- **blur.radius**: 1-50
-- **blur.sigma**: 1-50
-- **resize.width/height**: 1-30000
+- **rotate**: 0-360（必填）
+- **bright**: -100 到 100（必填）
+- **contrast**: -100 到 100（必填）
+- **sharpen**: 50-399（必填，注意最小值为50）
+- **circle**: 1-4096（必填）
+- **roundedCorners**: 1-4096（必填）
+- **blur.radius**: 1-50（必填）
+- **blur.sigma**: 1-50（必填）
+- **resize.width/height**: 1-16384（文件服务），1-30000（直连）
 - **resize.percentage**: 1-1000
 - **crop.width/height**: 1-30000
 - **watermark.transparency**: 0-100
 - **watermark.x/y**: 0-4096
 - **watermark.size**: 1-1000
-- **format**: 必须是 jpg, jpeg, png, webp, bmp, gif, tiff, heif, avif 之一
+
+**枚举值：**
+- **format**: 必须是 jpg, jpeg, png, webp, bmp, gif, tiff 之一（必填）
 - **resize.mode**: 必须是 lfit, mfit, fill, pad, fixed 之一
 - **crop.gravity**: 必须是 nw, north, ne, west, center, east, sw, south, se 之一
-- **autoOrient/interlace**: 必须是 0 或 1
+- **autoOrient/interlace**: 必须是 0 或 1（必填）
+
+**条件必填规则：**
+- **resize**: 使用 `mode` 时必须同时提供 `width` 和 `height`
+- **resize**: 使用 `mode=pad` 时必须提供 `color` 参数
+- **indexcrop**: 必须提供 `axis` (x 或 y)
 
 ## 详细参数说明
 
@@ -121,27 +129,68 @@ $fileLinks = $filesystem->getFileLinks(
 
 ```php
 $imageOptions->resize([
-    'width' => 300,        // 宽度 (1-30000)
-    'height' => 200,       // 高度 (1-30000)
-    'mode' => 'lfit',      // 模式：lfit|mfit|fill|pad|fixed
-    'limit' => 500,        // 长边限制 (1-30000)
-    'short' => 200,        // 短边限制 (1-30000)
-    'percentage' => 50,    // 百分比缩放 (1-1000)
+    'width' => 300,        // 宽度 (1-16384) - 条件必填
+    'height' => 200,       // 高度 (1-16384) - 条件必填
+    'mode' => 'lfit',      // 模式：lfit|mfit|fill|pad|fixed - 可选
+    'limit' => 500,        // 长边限制 (1-16384) - 条件必填
+    'short' => 200,        // 短边限制 (1-16384) - 条件必填
+    'percentage' => 50,    // 百分比缩放 (1-1000) - 条件必填
+    'color' => 'F5F5F5',   // 填充颜色 (6位hex) - mode=pad时必填
 ]);
 ```
 
 **验证规则：**
-- width/height/limit/short: 1-30000
+- width/height/limit/short: 1-16384（文件服务），1-30000（直连）
 - percentage: 1-1000
 - mode: lfit, mfit, fill, pad, fixed
+- color: 6位十六进制颜色值（仅在 mode=pad 时使用）
+
+**⚠️ 缩放矩形框计算方式及参数优先级：**
+
+**方式1：指定 width 和/或 height**
+```php
+// 同时指定 width 和 height：使用 w 和 h 构造缩放矩形框
+$imageOptions->resize(['width' => 800, 'height' => 600]);
+
+// 只指定 width 或 height（配合 mode）
+$imageOptions->resize(['width' => 800, 'mode' => 'lfit']);  // lfit/mfit/fixed：根据原图比例计算 h
+$imageOptions->resize(['width' => 800, 'mode' => 'fill']);  // fill/pad：构造 800x800 正方形
+$imageOptions->resize(['height' => 600, 'mode' => 'lfit']); // lfit/mfit/fixed：根据原图比例计算 w
+$imageOptions->resize(['height' => 600, 'mode' => 'pad', 'color' => 'FFFFFF']); // fill/pad：构造 600x600 正方形
+```
+
+**方式2：指定 limit 和/或 short（不含 width 和 height）**
+```php
+// 同时指定 limit 和 short：长边设置为 l，短边设置为 s
+$imageOptions->resize(['limit' => 1200, 'short' => 800]);
+
+// 只指定 limit 或 short（配合 mode）
+$imageOptions->resize(['limit' => 1200, 'mode' => 'lfit']);  // lfit/mfit/fixed：根据原图比例计算短边
+$imageOptions->resize(['limit' => 1200, 'mode' => 'fill']);  // fill/pad：构造 1200x1200 正方形
+$imageOptions->resize(['short' => 800, 'mode' => 'lfit']);   // lfit/mfit/fixed：根据原图比例计算长边
+```
+
+**方式3：百分比缩放（不含 width/height/limit/short）**
+```php
+// 按百分比缩放，不需要其他参数
+$imageOptions->resize(['percentage' => 50]); // 缩小到50%
+```
+
+**参数优先级：** `width/height` > `limit/short` > `percentage`
+
+**⚠️ 必填规则：**
+- 至少提供以下之一：`width`、`height`、`limit`、`short`、`percentage`
+- 使用 `mode=pad` 时必须提供 `color` 参数
+- `mode` 是可选的，不同 mode 会影响只有单个尺寸参数时的计算方式
 
 ### 2. 质量调整 (quality)
 
 ```php
-$imageOptions->quality(90);  // 1-100（必须）
+$imageOptions->quality(90);  // 1-100
 ```
 
-**验证规则：** 必须在 1-100 之间
+**验证规则：** 必须在 1-100 之间  
+**⚠️ 必填：** 否（可选参数）
 
 ### 3. 格式转换 (format)
 
@@ -157,7 +206,8 @@ $imageOptions->format('webp');  // jpg|png|webp|bmp|gif|tiff|heif|avif
 $imageOptions->rotate(90);  // 0-360，顺时针旋转
 ```
 
-**验证规则：** 必须在 0-360 之间
+**验证规则：** 必须在 0-360 之间  
+**⚠️ 必填：** 是（必须指定旋转角度）
 
 ### 5. 自定义裁剪 (crop)
 
@@ -182,7 +232,8 @@ $imageOptions->crop([
 $imageOptions->circle(100);  // 圆形半径 (1-4096)
 ```
 
-**验证规则：** 必须在 1-4096 之间
+**验证规则：** 必须在 1-4096 之间  
+**⚠️ 必填：** 是（必须指定圆形半径）
 
 ### 7. 圆角矩形 (roundedCorners)
 
@@ -190,29 +241,32 @@ $imageOptions->circle(100);  // 圆形半径 (1-4096)
 $imageOptions->roundedCorners(30);  // 圆角半径 (1-4096)
 ```
 
-**验证规则：** 必须在 1-4096 之间
+**验证规则：** 必须在 1-4096 之间  
+**⚠️ 必填：** 是（必须指定圆角半径）
 
 ### 8. 索引切割 (indexcrop)
 
 ```php
 $imageOptions->indexcrop([
-    'axis' => 'x',      // 切割轴：x 或 y
-    'length' => 100,    // 切割长度 (1-30000)
+    'axis' => 'x',      // 切割轴：x 或 y（必填）
+    'length' => 100,    // 切割长度 (>=1)
     'index' => 1,       // 选取索引 (>=0)
 ]);
 ```
 
 **验证规则：**
 - axis: 必须是 'x' 或 'y'
-- length: 1-30000
+- length: >= 1
 - index: >= 0
+
+**⚠️ 必填规则：** `axis` 参数必须提供（x 或 y）
 
 ### 9. 模糊效果 (blur)
 
 ```php
 $imageOptions->blur([
-    'radius' => 3,      // 模糊半径 (1-50)
-    'sigma' => 2,       // 标准差 (1-50)
+    'radius' => 3,      // 模糊半径 (1-50)（必填）
+    'sigma' => 2,       // 标准差 (1-50)（必填）
 ]);
 ```
 
@@ -220,13 +274,16 @@ $imageOptions->blur([
 - radius: 1-50
 - sigma: 1-50
 
+**⚠️ 必填规则：** `radius` 和 `sigma` 都必须提供
+
 ### 10. 锐化 (sharpen)
 
 ```php
-$imageOptions->sharpen(100);  // 0-300
+$imageOptions->sharpen(100);  // 50-399
 ```
 
-**验证规则：** 必须在 0-300 之间
+**验证规则：** 必须在 50-399 之间  
+**⚠️ 必填：** 是（必须指定锐化强度，注意最小值为50）
 
 ### 11. 亮度 (bright)
 
@@ -234,7 +291,8 @@ $imageOptions->sharpen(100);  // 0-300
 $imageOptions->bright(50);  // -100 到 100
 ```
 
-**验证规则：** 必须在 -100 到 100 之间
+**验证规则：** 必须在 -100 到 100 之间  
+**⚠️ 必填：** 是（必须指定亮度值）
 
 ### 12. 对比度 (contrast)
 
@@ -242,7 +300,8 @@ $imageOptions->bright(50);  // -100 到 100
 $imageOptions->contrast(50);  // -100 到 100
 ```
 
-**验证规则：** 必须在 -100 到 100 之间
+**验证规则：** 必须在 -100 到 100 之间  
+**⚠️ 必填：** 是（必须指定对比度值）
 
 ### 13. 水印 (watermark)
 
@@ -298,7 +357,8 @@ $imageOptions->averageHue();  // 获取图片主色调
 $imageOptions->autoOrient(1);  // 0 或 1
 ```
 
-**验证规则：** 必须是 0 或 1
+**验证规则：** 必须是 0 或 1  
+**⚠️ 必填：** 是（必须指定 0 或 1）
 
 ### 17. 渐进显示 (interlace)
 
@@ -306,7 +366,8 @@ $imageOptions->autoOrient(1);  // 0 或 1
 $imageOptions->interlace(1);  // 0 或 1
 ```
 
-**验证规则：** 必须是 0 或 1
+**验证规则：** 必须是 0 或 1  
+**⚠️ 必填：** 是（必须指定 0 或 1）
 
 ## 链式调用示例
 

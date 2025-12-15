@@ -21,6 +21,7 @@ class ImageProcessOptions
      * 图片缩放配置.
      * @var null|array ['width' => 300, 'height' => 200, 'mode' => 'lfit']
      *                 mode: lfit (默认)|mfit|fill|pad|fixed
+     *                 Note: File service max is 16384, direct OSS/TOS supports up to 30000
      */
     private ?array $resize = null;
 
@@ -79,7 +80,7 @@ class ImageProcessOptions
     private ?array $blur = null;
 
     /**
-     * 锐化值 (0-300).
+     * 锐化值 (50-399).
      */
     private ?int $sharpen = null;
 
@@ -346,8 +347,8 @@ class ImageProcessOptions
 
     public function sharpen(?int $sharpen): self
     {
-        if ($sharpen !== null && ($sharpen < 0 || $sharpen > 300)) {
-            throw new InvalidArgumentException('sharpen must be between 0 and 300');
+        if ($sharpen !== null && ($sharpen < 50 || $sharpen > 399)) {
+            throw new InvalidArgumentException('sharpen must be between 50 and 399');
         }
 
         $this->sharpen = $sharpen;

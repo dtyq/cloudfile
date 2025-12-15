@@ -9,6 +9,7 @@ namespace Dtyq\CloudFile\Kernel;
 
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
 use Dtyq\CloudFile\Kernel\Driver\FileService\FileServiceApi;
+use Dtyq\CloudFile\Kernel\Driver\ImageProcessInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\AppendUploadFile;
@@ -18,7 +19,9 @@ use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
 use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
 use Dtyq\CloudFile\Kernel\Struct\FilePreSignedUrl;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
+use Dtyq\CloudFile\Kernel\Utils\EasyFileTools;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\AliyunSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\FileServiceSimpleUpload;
@@ -54,6 +57,11 @@ class FilesystemProxy extends Filesystem
     ];
 
     private array $simpleUploadInstances = [];
+
+    /**
+     * Image processor instance cache.
+     */
+    private ?ImageProcessInterface $imageProcessor = null;
 
     public function __construct(
         SdkBase $container,
@@ -247,15 +255,29 @@ class FilesystemProxy extends Filesystem
     {
         $paths = $this->formatPaths($paths);
         $platform = $this->config['platform'] ?? '';
-        // 如果是公共读，直接返回拼接好的链接
+
+        // Check if there are image processing parameters
+        $hasImageProcessing = ! empty($options['image']);
+
+        // If public read and no download names, handle image processing and return concatenated links
         $list = [];
         if ($this->isPublicRead && ! empty($this->publicDomain) && empty($downloadNames)) {
             foreach ($paths as $path) {
+                // Build base URL
                 if ($this->adapterName === AdapterName::FILE_SERVICE && $platform === 'minio') {
                     $uri = $this->publicDomain . '/' . $this->config['key'] . '/' . $path;
                 } else {
                     $uri = $this->publicDomain . '/' . $path;
                 }
+
+                // Append image processing parameters if present (only for ImageProcessOptions)
+                if ($hasImageProcessing && $options['image'] instanceof ImageProcessOptions && EasyFileTools::isImage($path)) {
+                    $processString = $this->buildImageProcessString($options['image']);
+                    if (! empty($processString)) {
+                        $uri .= (! str_contains($uri, '?') ? '?' : '&') . $processString;
+                    }
+                }
+
                 $list[$path] = new FileLink($path, $uri, $expires);
             }
             return $list;
@@ -443,12 +465,44 @@ class FilesystemProxy extends Filesystem
         }
     }
 
+    /**
+     * Initialize and get image processor instance.
+     */
+    protected function getImageProcessor(): ?ImageProcessInterface
+    {
+        if ($this->imageProcessor !== null) {
+            return $this->imageProcessor;
+        }
+
+        $this->imageProcessor = match ($this->adapterName) {
+            AdapterName::ALIYUN => new Driver\OSS\OSSImageProcessor(),
+            AdapterName::TOS => new Driver\TOS\TOSImageProcessor(),
+            AdapterName::FILE_SERVICE => $this->getFileServiceImageProcessor(),
+            default => null,
+        };
+
+        return $this->imageProcessor;
+    }
+
     protected function getSimpleUploadInstance(string $platform): SimpleUpload
     {
         if (! isset($this->simpleUploadInstances[$platform])) {
             throw new CloudFileException("adapter not found | [{$this->adapterName}]");
         }
         return $this->simpleUploadInstances[$platform];
+    }
+
+    /**
+     * Get image processor for file service based on platform.
+     */
+    private function getFileServiceImageProcessor(): ?ImageProcessInterface
+    {
+        $platform = $this->config['platform'] ?? '';
+        return match ($platform) {
+            'aliyun', 'oss' => new Driver\OSS\OSSImageProcessor(),
+            'tos' => new Driver\TOS\TOSImageProcessor(),
+            default => null,
+        };
     }
 
     private function setCache(string $key, $value, int $ttl): void
@@ -542,5 +596,28 @@ class FilesystemProxy extends Filesystem
     private function uniqueKey(): string
     {
         return 'cloudfile:' . md5($this->adapterName . serialize($this->config));
+    }
+
+    /**
+     * Build image processing query string based on adapter type.
+     * Only supports ImageProcessOptions for public read scenarios.
+     *
+     * @param ImageProcessOptions $imageOptions Image processing options
+     * @return string Query string (e.g., 'x-oss-process=image%2Fresize%2Cw_800')
+     */
+    private function buildImageProcessString(ImageProcessOptions $imageOptions): string
+    {
+        $processor = $this->getImageProcessor();
+        if ($processor === null) {
+            return '';
+        }
+
+        $processString = $processor->buildProcessString($imageOptions);
+        if (empty($processString)) {
+            return '';
+        }
+
+        $paramName = $processor->getParameterName();
+        return $paramName . '=' . urlencode($processString);
     }
 }

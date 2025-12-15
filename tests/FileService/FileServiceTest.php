@@ -160,7 +160,6 @@ class FileServiceTest extends CloudFileBaseTest
         $list = $filesystem->getLinks([
             'easy-file/easy.jpeg',
         ], [], 7200, $options);
-        var_dump($list);
         $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
     }
 
@@ -171,11 +170,7 @@ class FileServiceTest extends CloudFileBaseTest
         // Use new unified ImageProcessOptions format (consistent with OSS/TOS)
         $imageOptions = (new ImageProcessOptions())
             ->resize([
-                'width' => 100,
                 'height' => 100,
-                'mode' => 'lfit',
-                'limit' => 100,
-                'short' => 100,
             ])->format('webp');
 
         $options = ['image' => $imageOptions, 'internal' => true];
@@ -184,8 +179,32 @@ class FileServiceTest extends CloudFileBaseTest
         $list = $filesystem->getLinks([
             'easy-file/tos_demo.png',
         ], [], 7200, $options);
-        var_dump($list);
         $this->assertArrayHasKey('easy-file/tos_demo.png', $list);
+    }
+
+    public function testGetLinksImageTOSPublish()
+    {
+        $filesystem = $this->getFilesystem('file_service_test_publish');
+
+        // Use new unified ImageProcessOptions format (consistent with OSS/TOS)
+        $imageOptions = (new ImageProcessOptions())
+            ->resize([
+                'height' => 100,
+            ])->format('webp');
+
+        $options = ['image' => $imageOptions, 'internal' => true];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $list = $filesystem->getLinks([
+            'easy-file/tos_demo1.png',
+        ], [], 7200, $options);
+        $this->assertArrayHasKey('easy-file/tos_demo1.png', $list);
+
+        $list = $filesystem->getLinks([
+            'easy-file/tos_demo1.png',
+        ], [], 7200, $options);
+        $this->assertArrayHasKey('easy-file/tos_demo1.png', $list);
+        var_dump($list);
     }
 
     public function testGetLinksImageLegacyFormat()
@@ -212,7 +231,6 @@ class FileServiceTest extends CloudFileBaseTest
         $list = $filesystem->getLinks([
             'easy-file/easy.jpeg',
         ], [], 7200, $options);
-        var_dump($list);
         $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
     }
 
@@ -233,8 +251,51 @@ class FileServiceTest extends CloudFileBaseTest
         $list = $filesystem->getLinks([
             'easy-file/easy.jpeg',
         ], [], 7200, $options);
-        var_dump($list);
         $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
+    }
+
+    public function testGetLinksImagePercentage()
+    {
+        $filesystem = $this->getFilesystem();
+
+        // Test resize with percentage only
+        $imageOptions = (new ImageProcessOptions())
+            ->resize(['percentage' => 50]);
+
+        $options = ['image' => $imageOptions];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $list = $filesystem->getLinks([
+            'easy-file/easy.jpeg',
+        ], [], 7200, $options);
+        $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
+
+        // Verify URL contains resize parameter
+        $url = $list['easy-file/easy.jpeg']->getUrl();
+        $this->assertStringContainsString('resize', $url);
+        $this->assertStringContainsString('p_50', $url);
+    }
+
+    public function testGetLinksImageWithLimit()
+    {
+        $filesystem = $this->getFilesystem();
+
+        // Test resize with mode and limit constraint
+        $imageOptions = (new ImageProcessOptions())
+            ->resize(['width' => 1000, 'height' => 1000, 'mode' => 'lfit', 'limit' => 800]);
+
+        $options = ['image' => $imageOptions];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $list = $filesystem->getLinks([
+            'easy-file/easy.jpeg',
+        ], [], 7200, $options);
+        $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
+
+        // Verify URL contains resize parameter with limit
+        $url = $list['easy-file/easy.jpeg']->getUrl();
+        $this->assertStringContainsString('resize', $url);
+        $this->assertStringContainsString('l_800', $url);
     }
 
     public function testDestroy()
