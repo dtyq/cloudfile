@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace Dtyq\CloudFile\Tests\TOS;
 
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
 use Dtyq\CloudFile\Tests\CloudFileBaseTest;
 
@@ -86,6 +87,20 @@ class TOSTest extends CloudFileBaseTest
             'easy-file/test.txt',
         ], [], 7200);
         $this->assertArrayHasKey('easy-file/test.txt', $list);
+    }
+
+    public function testGetImageLink()
+    {
+        $filesystem = $this->getFilesystem();
+
+        $imageOptions = (new ImageProcessOptions())->resize(['height' => 64])->format('webp');
+
+        $link = $filesystem->getLink('easy-file/tos_demo.png', '', 7200, [
+            'image' => $imageOptions,
+            'cache' => false,
+        ]);
+        var_dump($link);
+        $this->assertIsString($link->getUrl());
     }
 
     public function testDestroy()

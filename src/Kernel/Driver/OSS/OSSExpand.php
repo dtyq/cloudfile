@@ -19,6 +19,7 @@ use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadInfo;
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
 use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Utils\EasyFileTools;
 use Exception;
 use InvalidArgumentException;
@@ -35,6 +36,8 @@ class OSSExpand implements ExpandInterface
 
     private string $bucket;
 
+    private OSSImageProcessor $imageProcessor;
+
     public function __construct(array $config = [])
     {
         $this->config = $config;
@@ -45,6 +48,8 @@ class OSSExpand implements ExpandInterface
         } else {
             $this->client = $this->createClient($config);
         }
+
+        $this->imageProcessor = new OSSImageProcessor();
     }
 
     public function getUploadCredential(CredentialPolicy $credentialPolicy, array $options = []): array
@@ -420,10 +425,24 @@ class OSSExpand implements ExpandInterface
             $downloadName = rawurlencode($downloadName);
             $options['response-content-disposition'] = 'attachment;filename="' . $downloadName . '";filename*=utf-8\'\'' . $downloadName;
         }
-        // 如果是图片，做图片处理
-        if (EasyFileTools::isImage($path) && ! empty($options['image']['process'])) {
-            $options['x-oss-process'] = $options['image']['process'];
+
+        // 处理图片处理参数
+        if (EasyFileTools::isImage($path) && isset($options['image'])) {
+            // 支持新的 ImageProcessOptions 对象
+            if ($options['image'] instanceof ImageProcessOptions) {
+                $processString = $this->imageProcessor->buildProcessString($options['image']);
+                if (! empty($processString)) {
+                    $options[$this->imageProcessor->getParameterName()] = $processString;
+                }
+                unset($options['image']);
+            }
+            // 向下兼容：支持旧的 process 字符串
+            elseif (! empty($options['image']['process'])) {
+                $options[$this->imageProcessor->getParameterName()] = $options['image']['process'];
+                unset($options['image']);
+            }
         }
+
         $path = ltrim($path, '/');
         $url = $this->client->signUrl($this->bucket, $path, $timeout, OssClient::OSS_HTTP_GET, $options);
 

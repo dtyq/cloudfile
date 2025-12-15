@@ -17,7 +17,7 @@ class NoCache implements CacheInterface
         return $default;
     }
 
-    public function set(string $key, mixed $value, null|DateInterval|int $ttl = null): bool
+    public function set(string $key, mixed $value, DateInterval|int|null $ttl = null): bool
     {
         return true;
     }
@@ -37,7 +37,7 @@ class NoCache implements CacheInterface
         // TODO: Implement getMultiple() method.
     }
 
-    public function setMultiple(iterable $values, null|DateInterval|int $ttl = null): bool
+    public function setMultiple(iterable $values, DateInterval|int|null $ttl = null): bool
     {
         return true;
     }

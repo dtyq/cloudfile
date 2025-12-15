@@ -24,8 +24,8 @@ use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\AliyunSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\FileServiceSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\ObsSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\TosSimpleUpload;
+use Dtyq\CloudFile\Kernel\Utils\StrUtil;
 use Dtyq\SdkBase\SdkBase;
-use Hyperf\Stringable\Str;
 use League\Flysystem\Filesystem;
 use League\Flysystem\FilesystemAdapter;
 use League\Flysystem\PathNormalizer;
@@ -229,9 +229,19 @@ class FilesystemProxy extends Filesystem
         return $this->expand->getMetas($this->formatPaths($paths), $options);
     }
 
+    public function getLink(string $path, string $downloadName = '', int $expires = 3600, array $options = []): FileLink
+    {
+        $downloadNames = [];
+        if (! empty($downloadName)) {
+            $downloadNames[$path] = $downloadName;
+        }
+        $links = $this->getLinks([$path], $downloadNames, $expires, $options);
+        return $links[$path];
+    }
+
     /**
      * 获取文件链接.
-     * @return array<FileLink>
+     * @return array<string, FileLink>
      */
     public function getLinks(array $paths, array $downloadNames = [], int $expires = 3600, array $options = []): array
     {
@@ -520,8 +530,8 @@ class FilesystemProxy extends Filesystem
         }
         $newPaths = [];
         foreach ($paths as $path) {
-            if (Str::startsWith($path, $key)) {
-                $newPaths[] = Str::replaceFirst($key . '/', '', $path);
+            if (StrUtil::startsWith($path, $key)) {
+                $newPaths[] = StrUtil::replaceFirst($key . '/', '', $path);
             } else {
                 $newPaths[] = $path;
             }

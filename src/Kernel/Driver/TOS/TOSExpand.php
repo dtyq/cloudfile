@@ -17,6 +17,7 @@ use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadInfo;
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
 use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Exception;
 use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\FileAttributes;
@@ -38,11 +39,14 @@ class TOSExpand implements ExpandInterface
 
     private TosClient $client;
 
+    private TOSImageProcessor $imageProcessor;
+
     public function __construct(array $config = [])
     {
         $this->config = $config;
         $this->configParser = new ConfigParser($config);
         $this->client = new TosClient($this->configParser);
+        $this->imageProcessor = new TOSImageProcessor();
     }
 
     public function getUploadCredential(CredentialPolicy $credentialPolicy, array $options = []): array
@@ -389,15 +393,28 @@ class TOSExpand implements ExpandInterface
         $input = new PreSignedURLInput(Enum::HttpMethodGet, $this->getBucket(), $path);
         $input->setExpires($expires);
         $query = [];
-        // 图片处理
-        if (! empty($options['image']['process'])) {
-            $query['x-tos-process'] = $options['image']['process'];
+
+        // 处理图片处理参数
+        if (isset($options['image'])) {
+            // 支持新的 ImageProcessOptions 对象
+            if ($options['image'] instanceof ImageProcessOptions) {
+                $processString = $this->imageProcessor->buildProcessString($options['image']);
+                if (! empty($processString)) {
+                    $query[$this->imageProcessor->getParameterName()] = $processString;
+                }
+            }
+            // 向下兼容：支持旧的 process 字符串
+            elseif (! empty($options['image']['process'])) {
+                $query[$this->imageProcessor->getParameterName()] = $options['image']['process'];
+            }
         }
+
         // 自定义下载文件名
         if ($downloadName) {
             $downloadName = rawurlencode($downloadName);
             $query['response-content-disposition'] = 'attachment;filename="' . $downloadName . '";filename*=utf-8\'\'' . $downloadName;
         }
+
         if (! empty($query)) {
             $input->setQuery($query);
         }

@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace Dtyq\CloudFile\Tests\OSS;
 
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
 use Dtyq\CloudFile\Tests\CloudFileBaseTest;
 
@@ -90,30 +91,18 @@ class OSSTest extends CloudFileBaseTest
         $this->assertArrayHasKey('easy-file/test.txt', $list);
     }
 
-    public function testGetLinksImage()
+    public function testGetImageLink()
     {
         $filesystem = $this->getFilesystem();
 
-        $options = [
-            'image' => [
-                [
-                    'type' => 'resize',
-                    'params' => [
-                        'm' => 'lfit',
-                        'l' => 100,
-                        's' => 100,
-                        'w' => 100,
-                        'h' => 100,
-                    ],
-                ],
-            ],
-        ];
+        $imageOptions = (new ImageProcessOptions())->resize(['height' => 1000])->format('webp');
 
-        $list = $filesystem->getLinks([
-            'easy-file/easy.jpeg',
-        ], [], 7200, $options);
-        var_dump($list);
-        $this->assertArrayHasKey('easy-file/easy.jpeg', $list);
+        $link = $filesystem->getLink('easy-file/easy.jpeg', '', 7200, [
+            'image' => $imageOptions,
+            'cache' => false,
+        ]);
+        var_dump($link);
+        $this->assertIsString($link->getUrl());
     }
 
     public function testDestroy()
