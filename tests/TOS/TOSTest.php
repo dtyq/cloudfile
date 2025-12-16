@@ -103,6 +103,22 @@ class TOSTest extends CloudFileBaseTest
         $this->assertIsString($link->getUrl());
     }
 
+    public function testGetImageLink2()
+    {
+        $filesystem = $this->getFilesystem();
+
+        $imageOptions = (new ImageProcessOptions())->resize(['height' => 64])->format('webp');
+
+        $credentialPolicy = new CredentialPolicy([]);
+
+        $link = $filesystem->getPreSignedUrlByCredential($credentialPolicy, 'easy-file/tos_demo.png', [
+            'image' => $imageOptions,
+            'cache' => false,
+        ]);
+        var_dump($link);
+        $this->assertIsString($link);
+    }
+
     public function testDestroy()
     {
         $filesystem = $this->getFilesystem();
