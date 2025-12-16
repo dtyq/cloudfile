@@ -15,6 +15,7 @@ use Dtyq\CloudFile\Kernel\Struct\ChunkUploadFile;
 use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
 use Dtyq\CloudFile\Kernel\Utils\CurlHelper;
+use Dtyq\CloudFile\Kernel\Utils\EasyFileTools;
 use Dtyq\CloudFile\Kernel\Utils\MimeTypes;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 use Dtyq\SdkBase\SdkBase;
@@ -902,7 +903,7 @@ class TosSimpleUpload extends SimpleUpload
 
             // Handle image processing parameters (only for GET method)
             $method = strtoupper($options['method'] ?? 'GET');
-            if ($method === 'GET' && isset($options['image'])) {
+            if ($method === 'GET' && isset($options['image']) && EasyFileTools::isImage($objectKey)) {
                 // Support new ImageProcessOptions object
                 if ($options['image'] instanceof ImageProcessOptions) {
                     $processString = $this->imageProcessor->buildProcessString($options['image']);
