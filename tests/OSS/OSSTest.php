@@ -105,6 +105,21 @@ class OSSTest extends CloudFileBaseTest
         $this->assertIsString($link->getUrl());
     }
 
+    public function testGetImageLink2()
+    {
+        $filesystem = $this->getFilesystem();
+
+        $imageOptions = (new ImageProcessOptions())->resize(['height' => 80])->format('webp');
+
+        $credentialPolicy = new CredentialPolicy([]);
+        $link = $filesystem->getPreSignedUrlByCredential($credentialPolicy, 'easy-file/easy.jpeg', [
+            'image' => $imageOptions,
+            'cache' => false,
+        ]);
+        var_dump($link);
+        $this->assertIsString($link);
+    }
+
     public function testDestroy()
     {
         $filesystem = $this->getFilesystem();

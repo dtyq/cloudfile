@@ -207,6 +207,28 @@ class FileServiceTest extends CloudFileBaseTest
         var_dump($list);
     }
 
+    public function testGetLinksImageTOS2()
+    {
+        $filesystem = $this->getFilesystem('file_service_tos_test');
+
+        // Use new unified ImageProcessOptions format (consistent with OSS/TOS)
+        $imageOptions = (new ImageProcessOptions())
+            ->resize([
+                'height' => 64,
+            ])->format('webp');
+
+        $options = ['image' => $imageOptions, 'internal' => true];
+        $options = array_merge($options, $this->getOptions($filesystem->getOptions()));
+
+        $url = $filesystem->getPreSignedUrlByCredential(
+            new CredentialPolicy(),
+            'easy-file/tos_demo.png',
+            $options
+        );
+        var_dump($url);
+        $this->assertIsString($url);
+    }
+
     public function testGetLinksImageLegacyFormat()
     {
         $filesystem = $this->getFilesystem();

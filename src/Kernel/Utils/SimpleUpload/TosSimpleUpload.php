@@ -7,14 +7,17 @@ declare(strict_types=1);
 
 namespace Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 
+use Dtyq\CloudFile\Kernel\Driver\TOS\TOSImageProcessor;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkUploadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\AppendUploadFile;
 use Dtyq\CloudFile\Kernel\Struct\ChunkUploadFile;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
 use Dtyq\CloudFile\Kernel\Utils\CurlHelper;
 use Dtyq\CloudFile\Kernel\Utils\MimeTypes;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
+use Dtyq\SdkBase\SdkBase;
 use Throwable;
 use Tos\Exception\TosClientException;
 use Tos\Exception\TosServerException;
@@ -36,6 +39,14 @@ use Tos\TosClient;
 
 class TosSimpleUpload extends SimpleUpload
 {
+    private TOSImageProcessor $imageProcessor;
+
+    public function __construct(SdkBase $sdkContainer)
+    {
+        parent::__construct($sdkContainer);
+        $this->imageProcessor = new TOSImageProcessor();
+    }
+
     public function uploadObject(array $credential, UploadFile $uploadFile): void
     {
         if (isset($credential['temporary_credential'])) {
@@ -882,8 +893,31 @@ class TosSimpleUpload extends SimpleUpload
                 $preSignedInput->setHeader($headers);
             }
 
+            // Prepare query parameters
+            $query = [];
+
             if (isset($options['custom_query']) && is_array($options['custom_query'])) {
-                $preSignedInput->setQuery($options['custom_query']);
+                $query = $options['custom_query'];
+            }
+
+            // Handle image processing parameters (only for GET method)
+            $method = strtoupper($options['method'] ?? 'GET');
+            if ($method === 'GET' && isset($options['image'])) {
+                // Support new ImageProcessOptions object
+                if ($options['image'] instanceof ImageProcessOptions) {
+                    $processString = $this->imageProcessor->buildProcessString($options['image']);
+                    if (! empty($processString)) {
+                        $query[$this->imageProcessor->getParameterName()] = $processString;
+                    }
+                }
+                // Backward compatibility: support old process string
+                elseif (! empty($options['image']['process'])) {
+                    $query[$this->imageProcessor->getParameterName()] = $options['image']['process'];
+                }
+            }
+
+            if (! empty($query)) {
+                $preSignedInput->setQuery($query);
             }
 
             // Generate pre-signed URL

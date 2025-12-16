@@ -7,14 +7,17 @@ declare(strict_types=1);
 
 namespace Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 
+use Dtyq\CloudFile\Kernel\Driver\OSS\OSSImageProcessor;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkUploadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\AppendUploadFile;
 use Dtyq\CloudFile\Kernel\Struct\ChunkUploadFile;
+use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
 use Dtyq\CloudFile\Kernel\Utils\CurlHelper;
 use Dtyq\CloudFile\Kernel\Utils\MimeTypes;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
+use Dtyq\SdkBase\SdkBase;
 use OSS\Core\OssException;
 use OSS\Credentials\StaticCredentialsProvider;
 use OSS\OssClient;
@@ -22,6 +25,8 @@ use Throwable;
 
 class AliyunSimpleUpload extends SimpleUpload
 {
+    private OSSImageProcessor $imageProcessor;
+
     private array $signKeyList = [
         'acl', 'uploads', 'location', 'cors',
         'logging', 'website', 'referer', 'lifecycle',
@@ -47,6 +52,12 @@ class AliyunSimpleUpload extends SimpleUpload
         'regionList', 'cloudboxes', 'x-oss-ac-source-ip', 'x-oss-ac-subnet-mask', 'x-oss-ac-vpc-id', 'x-oss-ac-forward-allow',
         'metaQuery', 'resourceGroup', 'rtc', 'x-oss-async-process', 'responseHeader',
     ];
+
+    public function __construct(SdkBase $sdkContainer)
+    {
+        parent::__construct($sdkContainer);
+        $this->imageProcessor = new OSSImageProcessor();
+    }
 
     /**
      * @see https://help.aliyun.com/document_detail/31926.html
@@ -664,8 +675,23 @@ class AliyunSimpleUpload extends SimpleUpload
                     = 'attachment; filename="' . addslashes($filename) . '"';
             }
 
+            // Handle image processing parameters (only for GET method)
+            $method = strtoupper($options['method'] ?? 'GET');
+            if ($method === 'GET' && isset($options['image'])) {
+                // Support new ImageProcessOptions object
+                if ($options['image'] instanceof ImageProcessOptions) {
+                    $processString = $this->imageProcessor->buildProcessString($options['image']);
+                    if (! empty($processString)) {
+                        $signedUrlOptions[$this->imageProcessor->getParameterName()] = $processString;
+                    }
+                }
+                // Backward compatibility: support old process string
+                elseif (! empty($options['image']['process'])) {
+                    $signedUrlOptions[$this->imageProcessor->getParameterName()] = $options['image']['process'];
+                }
+            }
+
             // Generate signed URL - pass relative seconds, not absolute timestamp
-            $method = $options['method'] ?? 'GET';
             $signedUrl = $ossClient->signUrl($sdkConfig['bucket'], $objectKey, $expires, $method, $signedUrlOptions);
 
             $this->sdkContainer->getLogger()->info('get_presigned_url_success', [
