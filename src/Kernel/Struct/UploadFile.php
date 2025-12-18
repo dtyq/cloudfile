@@ -38,6 +38,7 @@ class UploadFile
         if (EasyFileTools::isUrl($realPath) || EasyFileTools::isBase64Image($realPath)) {
             $this->isRemote = true;
             $this->remoteUrl = $realPath;
+            $this->rename = $rename;
             return;
         }
         if (! is_file($realPath)) {
