@@ -127,6 +127,9 @@ class UploadFile
 
     public function getSize(): int
     {
+        if (empty($this->realPath) && $this->isRemote) {
+            $this->downloadRemoteUrl();
+        }
         return $this->size;
     }
 
