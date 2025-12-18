@@ -156,8 +156,10 @@ class UploadFile
         $this->size = filesize($this->realPath);
         $this->mimeType = mime_content_type($this->realPath);
 
-        $path = parse_url($this->remoteUrl, PHP_URL_PATH);
-        $this->name = pathinfo($path, PATHINFO_BASENAME);
+        if (empty($this->name)) {
+            $path = parse_url($this->remoteUrl, PHP_URL_PATH);
+            $this->name = pathinfo($path, PATHINFO_BASENAME);
+        }
 
         // 判断 name 中是否具有文件后缀，如果没有，则使用 mime_type 生成一个
         if (empty(pathinfo($this->name, PATHINFO_EXTENSION))) {
