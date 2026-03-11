@@ -19,7 +19,7 @@
  - 文件服务代理的 阿里云、火山云
  - 阿里云
  - 火山云
- - MinIO / S3 (AWS S3 兼容)
+- MinIO（兼容 S3 协议）
 
 ## 重要功能
 - [x] 获取临时凭证
@@ -95,9 +95,9 @@ $configs = [
                 'trn' => 'xxx',
             ],
         ],
-        // MinIO/S3 配置示例
-        's3_test' => [
-            'adapter' => 's3', // 或 'minio'
+        // MinIO 直连配置示例（底层复用 S3 协议实现）
+        'minio_test' => [
+            'adapter' => 'minio',
             'config' => [
                 'region' => 'us-east-1',
                 'endpoint' => 'http://localhost:9000', // MinIO 服务地址
@@ -277,30 +277,40 @@ $filesystem->uploadByCredential($uploadFile, $credentialPolicy);
 $links = $filesystem->getLinks(['my-folder/file.txt'], [], 3600);
 ```
 
-## MinIO / S3 使用说明
+## MinIO 直连使用说明
 
 ### 配置要点
-MinIO 是 AWS S3 兼容的对象存储，使用时需要注意：
+MinIO 是兼容 AWS S3 协议的对象存储，但对外配置仍使用 `adapter=minio`。使用时需要注意：
 - `use_path_style_endpoint` 必须设置为 `true`
 - `endpoint` 设置为 MinIO 服务地址（如 `http://localhost:9000`）
-- 支持 STS 临时凭证功能（需配置 `role_arn`）
+- `sts=false` 时，返回与 `file_service + platform=minio` 对齐的表单直传 credential，核心字段包括 `signature`、`policy`、`fields`
+- `sts=true` 时，返回与 `file_service + platform=minio` 对齐的 STS credential，核心字段包括 `sts_token`、`access_key_id`、`access_key_secret`
+- `uploadByCredential()` 固定走 `sts=false`
+- `uploadByChunks()`、`appendUploadByCredential()`、`getPreSignedUrlByCredential()`、`listObjectsByCredential()` 等 SDK 能力固定走 `sts=true`
 
 ### 基本使用示例
 
 ```php
-$filesystem = $cloudFile->get('s3_test');
+$filesystem = $cloudFile->get('minio_test');
 
 // 获取临时凭证
 $credentialPolicy = new CredentialPolicy([
-    'sts' => false, // 简单签名模式
+    'sts' => false, // 返回 MinIO 表单直传 credential，字段语义与 file_service/minio 保持一致
     'roleSessionName' => 'test',
 ]);
-$credential = $filesystem->getUploadCredential($credentialPolicy);
+$credential = $filesystem->getUploadTemporaryCredential($credentialPolicy);
 
 // 上传文件
 $realPath = __DIR__ . '/test.txt';
 $uploadFile = new UploadFile($realPath, 'my-folder');
 $filesystem->uploadByCredential($uploadFile, $credentialPolicy);
+
+// 分片上传 / 预签名 URL 等 SDK 场景需要 STS 凭证
+$stsPolicy = new CredentialPolicy([
+    'sts' => true,
+    'roleSessionName' => 'test',
+]);
+$stsCredential = $filesystem->getUploadTemporaryCredential($stsPolicy);
 
 // 获取文件链接
 $links = $filesystem->getLinks(['my-folder/test.txt'], [], 3600);
@@ -317,4 +327,6 @@ $filesystem->destroy('my-folder/test.txt');
 - MinIO 默认使用 path-style 访问（`http://endpoint/bucket/key`）
 - AWS S3 默认使用 virtual-hosted-style 访问（`http://bucket.endpoint/key`）
 - 通过设置 `use_path_style_endpoint => true` 可统一使用 path-style
+- `cloudfile` 对外暴露的是 `minio` 适配器，内部复用的是 S3 协议实现
+- 直连 `minio` 与 `file_service + platform=minio` 共享同一套 credential 语义，避免两套接入心智
 ```

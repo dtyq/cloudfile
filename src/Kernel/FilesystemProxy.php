@@ -26,6 +26,7 @@ use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\AliyunSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\FileServiceSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\ObsSimpleUpload;
+use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\S3SimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\TosSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\StrUtil;
 use Dtyq\SdkBase\SdkBase;
@@ -53,6 +54,7 @@ class FilesystemProxy extends Filesystem
         AdapterName::ALIYUN => AliyunSimpleUpload::class,
         AdapterName::TOS => TosSimpleUpload::class,
         AdapterName::OBS => ObsSimpleUpload::class,
+        AdapterName::MINIO => S3SimpleUpload::class,
         AdapterName::FILE_SERVICE => FileServiceSimpleUpload::class,
     ];
 
@@ -542,6 +544,8 @@ class FilesystemProxy extends Filesystem
                 return new Driver\OSS\OSSExpand($config);
             case AdapterName::TOS:
                 return new Driver\TOS\TOSExpand($config);
+            case AdapterName::MINIO:
+                return new Driver\S3\S3Expand($config);
             case AdapterName::FILE_SERVICE:
                 $fileServiceApi = new FileServiceApi($this->container, $config);
                 return new Driver\FileService\FileServiceExpand($fileServiceApi);
@@ -578,6 +582,23 @@ class FilesystemProxy extends Filesystem
                     'bucket' => $temp['bucket'],
                     'timeout' => 3600,
                     'connectTimeout' => 10,
+                ];
+            case AdapterName::MINIO:
+                $tempCred = $credential['temporary_credential'];
+                $credentials = $tempCred['credentials'] ?? [
+                    'access_key_id' => $tempCred['access_key_id'] ?? '',
+                    'secret_access_key' => $tempCred['access_key_secret'] ?? $tempCred['secret_access_key'] ?? '',
+                    'session_token' => $tempCred['sts_token'] ?? $tempCred['session_token'] ?? null,
+                ];
+                return [
+                    'region' => $tempCred['region'] ?? 'us-east-1',
+                    'endpoint' => $tempCred['endpoint'] ?? null,
+                    'bucket' => $tempCred['bucket'],
+                    'version' => $tempCred['version'] ?? 'latest',
+                    'use_path_style_endpoint' => $tempCred['use_path_style_endpoint'] ?? true,
+                    'accessKey' => $credentials['access_key_id'],
+                    'secretKey' => $credentials['secret_access_key'] ?? $credentials['access_key_secret'],
+                    'sessionToken' => $credentials['session_token'] ?? null,
                 ];
             default:
                 throw new CloudFileException("expand not found | [{$adapterName}]");
