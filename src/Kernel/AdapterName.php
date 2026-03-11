@@ -37,7 +37,7 @@ class AdapterName
     public const LOCAL = 'local';
 
     /**
-     * S3/MinIO.
+     * MinIO（底层复用 S3 协议实现）.
      */
     public const MINIO = 'minio';
 

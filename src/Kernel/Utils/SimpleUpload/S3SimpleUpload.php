@@ -33,9 +33,7 @@ class S3SimpleUpload extends SimpleUpload
     {
         $this->sdkContainer->getLogger()->info('credential: ' . json_encode($credential, JSON_UNESCAPED_UNICODE));
 
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         // Auto-detect credential type and choose upload method
         if ($this->isStsCredential($credential)) {
@@ -63,9 +61,7 @@ class S3SimpleUpload extends SimpleUpload
             return;
         }
 
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $client = $this->createS3Client($credential);
 
@@ -120,13 +116,11 @@ class S3SimpleUpload extends SimpleUpload
      */
     public function appendUploadObject(array $credential, AppendUploadFile $appendUploadFile): void
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $key = ($credential['dir'] ?? '') . $appendUploadFile->getKeyPath();
 
-        if (! isset($credential['credentials']['access_key_id']) || ! isset($credential['credentials']['secret_access_key']) || ! isset($credential['bucket'])) {
+        if (! $this->isStsCredential($credential)) {
             throw new CloudFileException('S3 upload credential is invalid');
         }
 
@@ -174,9 +168,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function listObjectsByCredential(array $credential, string $prefix = '', array $options = []): array
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $client = $this->createS3Client($credential);
 
@@ -203,9 +195,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function deleteObjectByCredential(array $credential, string $objectKey, array $options = []): void
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $client = $this->createS3Client($credential);
 
@@ -217,9 +207,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function copyObjectByCredential(array $credential, string $sourceKey, string $destinationKey, array $options = []): void
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $client = $this->createS3Client($credential);
 
@@ -273,9 +261,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function getHeadObjectByCredential(array $credential, string $objectKey, array $options = []): array
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $client = $this->createS3Client($credential);
 
@@ -289,9 +275,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function createObjectByCredential(array $credential, string $objectKey, array $options = []): void
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
         $client = $this->createS3Client($credential);
 
         $params = [
@@ -306,9 +290,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function getPreSignedUrlByCredential(array $credential, string $objectKey, array $options = []): string
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
         $client = $this->createS3Client($credential);
 
         // HTTP 方法转换为 S3 API 操作名
@@ -364,9 +346,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function deleteObjectsByCredential(array $credential, array $objectKeys, array $options = []): array
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
         $client = $this->createS3Client($credential);
 
         $objects = array_map(fn ($key) => ['Key' => $key], $objectKeys);
@@ -386,9 +366,7 @@ class S3SimpleUpload extends SimpleUpload
 
     public function setHeadObjectByCredential(array $credential, string $objectKey, array $metadata, array $options = []): void
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
         $client = $this->createS3Client($credential);
 
         // S3 requires copying the object to itself to update metadata
@@ -402,13 +380,17 @@ class S3SimpleUpload extends SimpleUpload
     }
 
     /**
-     * Check if credential is STS format (SDK mode).
-     * Requires: credentials.access_key_id, credentials.secret_access_key, bucket.
+     * Check if credential can be used with the S3 SDK.
+     * Supports both long-lived AK/SK and STS temporary credentials.
      */
     private function isStsCredential(array $credential): bool
     {
         return isset($credential['credentials']['access_key_id'])
-            && isset($credential['credentials']['secret_access_key'], $credential['bucket']);
+            && isset($credential['bucket'])
+            && (
+                isset($credential['credentials']['secret_access_key'])
+                || isset($credential['credentials']['access_key_secret'])
+            );
     }
 
     /**
@@ -468,6 +450,7 @@ class S3SimpleUpload extends SimpleUpload
      */
     private function uploadObjectByFormPost(array $credential, UploadFile $uploadFile): void
     {
+        $credential = $this->normalizeCredential($credential);
         $key = $credential['dir'] . $uploadFile->getKeyPath();
 
         // Build multipart form data
@@ -560,9 +543,7 @@ class S3SimpleUpload extends SimpleUpload
 
     private function createS3Client(array $credential): S3Client
     {
-        if (isset($credential['temporary_credential'])) {
-            $credential = $credential['temporary_credential'];
-        }
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
         $config = [
             'version' => $credential['version'] ?? 'latest',
@@ -578,16 +559,59 @@ class S3SimpleUpload extends SimpleUpload
         if (isset($credential['credentials']['session_token'])) {
             $config['credentials'] = new Credentials(
                 $credential['credentials']['access_key_id'],
-                $credential['credentials']['secret_access_key'],
+                $credential['credentials']['secret_access_key'] ?? $credential['credentials']['access_key_secret'],
                 $credential['credentials']['session_token']
             );
         } else {
             $config['credentials'] = [
                 'key' => $credential['credentials']['access_key_id'],
-                'secret' => $credential['credentials']['secret_access_key'],
+                'secret' => $credential['credentials']['secret_access_key'] ?? $credential['credentials']['access_key_secret'],
             ];
         }
 
         return new S3Client($config);
+    }
+
+    private function unwrapTemporaryCredential(array $credential): array
+    {
+        return $credential['temporary_credential'] ?? $credential;
+    }
+
+    private function normalizeCredential(array $credential): array
+    {
+        if (! isset($credential['credentials']) && isset($credential['access_key_id'], $credential['bucket'])) {
+            $credential['credentials'] = [
+                'access_key_id' => $credential['access_key_id'],
+                'secret_access_key' => $credential['access_key_secret'] ?? $credential['secret_access_key'] ?? '',
+            ];
+
+            if (isset($credential['sts_token']) || isset($credential['session_token'])) {
+                $credential['credentials']['session_token'] = $credential['sts_token'] ?? $credential['session_token'];
+            }
+        }
+
+        if (! isset($credential['fields']) && isset($credential['policy'], $credential['signature'])) {
+            $credential['fields'] = [
+                'policy' => $credential['policy'],
+                'X-Amz-Algorithm' => $credential['x_amz_algorithm'] ?? $credential['x-amz-algorithm'] ?? 'AWS4-HMAC-SHA256',
+                'X-Amz-Credential' => $credential['x_amz_credential'] ?? $credential['x-amz-credential'] ?? '',
+                'X-Amz-Date' => $credential['x_amz_date'] ?? $credential['x-amz-date'] ?? '',
+                'X-Amz-Signature' => $credential['signature'],
+            ];
+
+            if (isset($credential['content_type'])) {
+                $credential['fields']['Content-Type'] = $credential['content_type'];
+            }
+        }
+
+        if (! isset($credential['host']) && isset($credential['url'])) {
+            $credential['host'] = $credential['url'];
+        }
+
+        if (! isset($credential['url']) && isset($credential['host'])) {
+            $credential['url'] = $credential['host'];
+        }
+
+        return $credential;
     }
 }

@@ -52,7 +52,7 @@ return [
                 'use_path_style_endpoint' => true,
                 // SDK 版本
                 'version' => 'latest',
-                // 可选：用于 STS 临时凭证的 Role ARN
+                // 可选：STS 能力（分片上传、预签名 URL、对象管理等）依赖的 Role ARN
                 'role_arn' => env('MINIO_ROLE_ARN', ''),
                 // 可选：STS 服务端点（如果与主服务不同）
                 'sts_endpoint' => env('MINIO_STS_ENDPOINT', ''),

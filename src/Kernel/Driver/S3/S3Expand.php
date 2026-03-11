@@ -9,8 +9,8 @@ namespace Dtyq\CloudFile\Kernel\Driver\S3;
 
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
-use DateTime;
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
+use Dtyq\CloudFile\Kernel\AdapterName;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadConfig;
@@ -33,23 +33,14 @@ class S3Expand implements ExpandInterface
     public function __construct(array $config = [])
     {
         $this->config = $config;
-        $this->client = new S3Client([
-            'version' => $config['version'] ?? 'latest',
-            'region' => $config['region'] ?? 'us-east-1',
-            'endpoint' => $config['endpoint'] ?? null,
-            'use_path_style_endpoint' => $config['use_path_style_endpoint'] ?? true,
-            'credentials' => [
-                'key' => $config['accessKey'] ?? '',
-                'secret' => $config['secretKey'] ?? '',
-            ],
-        ]);
+        $this->client = $this->createS3Client($config);
     }
 
     public function getUploadCredential(CredentialPolicy $credentialPolicy, array $options = []): array
     {
-        // return $credentialPolicy->isSts() ? $this->getUploadCredentialBySts($credentialPolicy) : $this->getUploadCredentialBySimple($credentialPolicy);
-        // s3 暂支持 sts 的方式
-        return $this->getUploadCredentialBySts($credentialPolicy);
+        return $credentialPolicy->isSts()
+            ? $this->getUploadCredentialBySts($credentialPolicy)
+            : $this->getUploadCredentialBySimple($credentialPolicy);
     }
 
     public function getPreSignedUrls(array $fileNames, int $expires = 3600, array $options = []): array
@@ -155,54 +146,66 @@ class S3Expand implements ExpandInterface
         }
     }
 
-    /**
-     * Get upload credential using simple signature (PostObject).
-     */
     private function getUploadCredentialBySimple(CredentialPolicy $credentialPolicy): array
     {
-        $expires = $credentialPolicy->getExpires();
-
-        $now = new DateTime();
-        $end = $now->modify("+{$expires} seconds");
-
-        $expiration = $end->format('Y-m-d\TH:i:s\Z');
-
-        $conditions = [
-            ['bucket' => $this->getBucket()],
-            ['acl' => 'public-read'],
-        ];
-
-        if (! empty($credentialPolicy->getSizeMax())) {
-            $conditions[] = ['content-length-range', 0, $credentialPolicy->getSizeMax()];
-        }
-        if (! empty($credentialPolicy->getDir())) {
-            $conditions[] = ['starts-with', '$key', $credentialPolicy->getDir()];
-        }
-        if (! empty($credentialPolicy->getMimeType())) {
-            $conditions[] = ['starts-with', '$Content-Type', ''];
-        }
-
+        $issuedAt = time();
+        $expiresAt = $issuedAt + $credentialPolicy->getExpires();
+        $amzDate = gmdate('Ymd\THis\Z', $issuedAt);
+        $shortDate = gmdate('Ymd', $issuedAt);
+        $region = $this->config['region'] ?? 'us-east-1';
+        $bucket = $this->getBucket();
+        $dir = $credentialPolicy->getDir();
+        $accessKey = $this->config['accessKey'] ?? '';
+        $credentialScope = "{$shortDate}/{$region}/s3/aws4_request";
         $policy = [
-            'expiration' => $expiration,
-            'conditions' => $conditions,
+            'expiration' => gmdate('Y-m-d\TH:i:s\Z', $expiresAt),
+            'conditions' => [
+                ['bucket' => $bucket],
+                ['starts-with', '$key', $dir],
+                ['x-amz-algorithm' => 'AWS4-HMAC-SHA256'],
+                ['x-amz-credential' => "{$accessKey}/{$credentialScope}"],
+                ['x-amz-date' => $amzDate],
+            ],
         ];
 
-        $base64Policy = base64_encode(json_encode($policy));
-        $signature = base64_encode(hash_hmac('sha1', $base64Policy, $this->config['secretKey'], true));
+        $contentType = $credentialPolicy->getContentType();
+        if ($contentType !== '') {
+            $policy['conditions'][] = ['Content-Type' => $contentType];
+        }
 
-        $endpoint = $this->config['endpoint'] ?? '';
-        $host = rtrim($endpoint, '/');
+        $encodedPolicy = base64_encode((string) json_encode($policy, JSON_UNESCAPED_SLASHES));
+        $signature = $this->signPolicy($shortDate, $region, $encodedPolicy);
+        $fields = [
+            'policy' => $encodedPolicy,
+            'X-Amz-Algorithm' => 'AWS4-HMAC-SHA256',
+            'X-Amz-Credential' => "{$accessKey}/{$credentialScope}",
+            'X-Amz-Date' => $amzDate,
+            'X-Amz-Signature' => $signature,
+        ];
+
+        if ($contentType !== '') {
+            $fields['Content-Type'] = $contentType;
+        }
 
         return [
-            'access_key_id' => $this->config['accessKey'],
-            'host' => $host,
-            'policy' => $base64Policy,
+            'platform' => AdapterName::MINIO,
+            'region' => $region,
+            'endpoint' => $this->config['endpoint'] ?? null,
+            'bucket' => $bucket,
+            'dir' => $dir,
+            'version' => $this->config['version'] ?? 'latest',
+            'use_path_style_endpoint' => $this->config['use_path_style_endpoint'] ?? true,
+            'host' => $this->buildUploadHost($bucket),
+            'url' => $this->buildUploadHost($bucket),
+            'policy' => $encodedPolicy,
             'signature' => $signature,
-            'expires' => $end->getTimestamp(),
-            'dir' => $credentialPolicy->getDir(),
-            'bucket' => $this->getBucket(),
-            'region' => $this->config['region'] ?? 'us-east-1',
-            'callback' => '',
+            'access_key_id' => $accessKey,
+            'content_type' => $contentType,
+            'x_amz_algorithm' => $fields['X-Amz-Algorithm'],
+            'x_amz_credential' => $fields['X-Amz-Credential'],
+            'x_amz_date' => $fields['X-Amz-Date'],
+            'fields' => $fields,
+            'expires' => $expiresAt,
         ];
     }
 
@@ -301,19 +304,29 @@ class S3Expand implements ExpandInterface
         ]);
 
         $credentials = $result['Credentials'];
+        $expiration = $credentials['Expiration'];
+        $expirationTimestamp = is_object($expiration) && method_exists($expiration, 'getTimestamp')
+            ? $expiration->getTimestamp()
+            : strtotime((string) $expiration);
 
         return [
+            'platform' => AdapterName::MINIO,
             'region' => $this->config['region'] ?? 'us-east-1',
+            'endpoint' => $this->config['endpoint'] ?? null,
+            'version' => $this->config['version'] ?? 'latest',
+            'use_path_style_endpoint' => $this->config['use_path_style_endpoint'] ?? true,
             'credentials' => [
                 'access_key_id' => $credentials['AccessKeyId'],
-                'access_key_secret' => $credentials['SecretAccessKey'],
+                'secret_access_key' => $credentials['SecretAccessKey'],
                 'session_token' => $credentials['SessionToken'],
-                'expiration' => $credentials['Expiration'],
+                'expiration' => $expiration,
             ],
+            'access_key_id' => $credentials['AccessKeyId'],
+            'access_key_secret' => $credentials['SecretAccessKey'],
+            'sts_token' => $credentials['SessionToken'],
             'bucket' => $this->getBucket(),
             'dir' => $credentialPolicy->getDir(),
-            'expires' => $expires,
-            'callback' => '',
+            'expires' => $expirationTimestamp,
         ];
     }
 
@@ -455,5 +468,63 @@ class S3Expand implements ExpandInterface
     private function getBucket(): string
     {
         return $this->config['bucket'] ?? '';
+    }
+
+    private function signPolicy(string $shortDate, string $region, string $policy): string
+    {
+        $secretKey = $this->config['secretKey'] ?? '';
+        $dateKey = hash_hmac('sha256', $shortDate, 'AWS4' . $secretKey, true);
+        $regionKey = hash_hmac('sha256', $region, $dateKey, true);
+        $serviceKey = hash_hmac('sha256', 's3', $regionKey, true);
+        $signingKey = hash_hmac('sha256', 'aws4_request', $serviceKey, true);
+
+        return hash_hmac('sha256', $policy, $signingKey);
+    }
+
+    private function buildUploadHost(string $bucket): string
+    {
+        $endpoint = rtrim((string) ($this->config['endpoint'] ?? ''), '/');
+        if ($endpoint === '') {
+            return '';
+        }
+
+        if ($this->config['use_path_style_endpoint'] ?? true) {
+            return "{$endpoint}/{$bucket}";
+        }
+
+        $parts = parse_url($endpoint);
+        if (! is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return $endpoint;
+        }
+
+        $authority = $bucket . '.' . $parts['host'];
+        if (! empty($parts['port'])) {
+            $authority .= ':' . $parts['port'];
+        }
+
+        return $parts['scheme'] . '://' . $authority;
+    }
+
+    private function createS3Client(array $config): S3Client
+    {
+        $clientConfig = [
+            'version' => $config['version'] ?? 'latest',
+            'region' => $config['region'] ?? 'us-east-1',
+            'use_path_style_endpoint' => $config['use_path_style_endpoint'] ?? true,
+            'credentials' => [
+                'key' => $config['accessKey'] ?? '',
+                'secret' => $config['secretKey'] ?? '',
+            ],
+        ];
+
+        if (! empty($config['endpoint'])) {
+            $clientConfig['endpoint'] = $config['endpoint'];
+        }
+
+        if (! empty($config['sessionToken'])) {
+            $clientConfig['credentials']['token'] = $config['sessionToken'];
+        }
+
+        return new S3Client($clientConfig);
     }
 }
