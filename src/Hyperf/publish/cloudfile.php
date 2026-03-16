@@ -39,23 +39,23 @@ return [
             'adapter' => 'minio',
             'config' => [
                 // MinIO 服务地址，如：http://localhost:9000
-                'endpoint' => env('MINIO_ENDPOINT', 'http://localhost:9000'),
+                'endpoint' => '',
                 // 区域，默认 us-east-1
-                'region' => env('MINIO_REGION', 'us-east-1'),
+                'region' => '',
                 // Access Key
-                'accessKey' => env('MINIO_ACCESS_KEY', ''),
+                'accessKey' => '',
                 // Secret Key
-                'secretKey' => env('MINIO_SECRET_KEY', ''),
+                'secretKey' => '',
                 // 存储桶名称
-                'bucket' => env('MINIO_BUCKET', ''),
+                'bucket' => '',
                 // MinIO 必须使用 path-style 访问
                 'use_path_style_endpoint' => true,
                 // SDK 版本
                 'version' => 'latest',
                 // 可选：STS 能力（分片上传、预签名 URL、对象管理等）依赖的 Role ARN
-                'role_arn' => env('MINIO_ROLE_ARN', ''),
+                'role_arn' => '',
                 // 可选：STS 服务端点（如果与主服务不同）
-                'sts_endpoint' => env('MINIO_STS_ENDPOINT', ''),
+                'sts_endpoint' => '',
             ],
             // 可选：是否公开读
             'public_read' => false,
