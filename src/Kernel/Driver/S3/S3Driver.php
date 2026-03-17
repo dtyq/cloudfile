@@ -30,6 +30,7 @@ class S3Driver implements FilesystemAdapter
      * @param array $config = [
      *                      'region' => '',
      *                      'endpoint' => '',
+     *                      'internal_endpoint' => '',
      *                      'accessKey' => '',
      *                      'secretKey' => '',
      *                      'bucket' => '',
@@ -45,7 +46,7 @@ class S3Driver implements FilesystemAdapter
         $this->client = new S3Client([
             'version' => $config['version'] ?? 'latest',
             'region' => $config['region'] ?? 'us-east-1',
-            'endpoint' => $config['endpoint'] ?? null,
+            'endpoint' => $config['internal_endpoint'] ?? $config['endpoint'] ?? null,
             'use_path_style_endpoint' => $config['use_path_style_endpoint'] ?? true,
             'credentials' => [
                 'key' => $config['accessKey'] ?? '',

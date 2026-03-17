@@ -291,7 +291,7 @@ class S3SimpleUpload extends SimpleUpload
     public function getPreSignedUrlByCredential(array $credential, string $objectKey, array $options = []): string
     {
         $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
-        $client = $this->createS3Client($credential);
+        $client = $this->createS3Client($credential, false);
 
         // HTTP 方法转换为 S3 API 操作名
         // OSS/TOS 使用 HTTP 方法（GET, PUT），但 S3 需要 API 操作名（GetObject, PutObject）
@@ -541,7 +541,7 @@ class S3SimpleUpload extends SimpleUpload
         ];
     }
 
-    private function createS3Client(array $credential): S3Client
+    private function createS3Client(array $credential, bool $preferInternalEndpoint = true): S3Client
     {
         $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
 
@@ -551,8 +551,11 @@ class S3SimpleUpload extends SimpleUpload
             'use_path_style_endpoint' => $credential['use_path_style_endpoint'] ?? true,
         ];
 
-        if (! empty($credential['endpoint'])) {
-            $config['endpoint'] = $credential['endpoint'];
+        $endpoint = $preferInternalEndpoint
+            ? ($credential['internal_endpoint'] ?? $credential['endpoint'] ?? null)
+            : ($credential['endpoint'] ?? null);
+        if (! empty($endpoint)) {
+            $config['endpoint'] = $endpoint;
         }
 
         // Check if using temporary credentials (STS)

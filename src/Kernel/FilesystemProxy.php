@@ -593,6 +593,7 @@ class FilesystemProxy extends Filesystem
                 return [
                     'region' => $tempCred['region'] ?? 'us-east-1',
                     'endpoint' => $tempCred['endpoint'] ?? null,
+                    'internal_endpoint' => $this->config['internal_endpoint'] ?? null,
                     'bucket' => $tempCred['bucket'],
                     'version' => $tempCred['version'] ?? 'latest',
                     'use_path_style_endpoint' => $tempCred['use_path_style_endpoint'] ?? true,

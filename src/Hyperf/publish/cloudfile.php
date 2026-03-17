@@ -38,8 +38,10 @@ return [
         'minio' => [
             'adapter' => 'minio',
             'config' => [
-                // MinIO 服务地址，如：http://localhost:9000
+                // MinIO 对外访问地址，返回给前端的直传/预签名 URL 使用此地址
                 'endpoint' => '',
+                // MinIO 集群内访问地址，仅供服务端 SDK 读写对象使用，不应返回给前端
+                'internal_endpoint' => '',
                 // 区域，默认 us-east-1
                 'region' => '',
                 // Access Key
