@@ -9,8 +9,8 @@ namespace Dtyq\CloudFile\Kernel\Driver\S3;
 
 use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
-use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
 use Dtyq\CloudFile\Kernel\AdapterName;
+use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadConfig;
@@ -30,10 +30,13 @@ class S3Expand implements ExpandInterface
 
     private S3Client $client;
 
+    private S3Client $publicClient;
+
     public function __construct(array $config = [])
     {
         $this->config = $config;
-        $this->client = $this->createS3Client($config);
+        $this->client = $this->createS3Client($config, true);
+        $this->publicClient = $this->createS3Client($config, false);
     }
 
     public function getUploadCredential(CredentialPolicy $credentialPolicy, array $options = []): array
@@ -190,13 +193,13 @@ class S3Expand implements ExpandInterface
         return [
             'platform' => AdapterName::MINIO,
             'region' => $region,
-            'endpoint' => $this->config['endpoint'] ?? null,
+            'endpoint' => $this->getPublicEndpoint(),
             'bucket' => $bucket,
             'dir' => $dir,
             'version' => $this->config['version'] ?? 'latest',
             'use_path_style_endpoint' => $this->config['use_path_style_endpoint'] ?? true,
-            'host' => $this->buildUploadHost($bucket),
-            'url' => $this->buildUploadHost($bucket),
+            'host' => $this->buildUploadHost($bucket, $this->getPublicEndpoint()),
+            'url' => $this->buildUploadHost($bucket, $this->getPublicEndpoint()),
             'policy' => $encodedPolicy,
             'signature' => $signature,
             'access_key_id' => $accessKey,
@@ -312,7 +315,7 @@ class S3Expand implements ExpandInterface
         return [
             'platform' => AdapterName::MINIO,
             'region' => $this->config['region'] ?? 'us-east-1',
-            'endpoint' => $this->config['endpoint'] ?? null,
+            'endpoint' => $this->getPublicEndpoint(),
             'version' => $this->config['version'] ?? 'latest',
             'use_path_style_endpoint' => $this->config['use_path_style_endpoint'] ?? true,
             'credentials' => [
@@ -337,8 +340,8 @@ class S3Expand implements ExpandInterface
             'Key' => $path,
         ];
 
-        $command = $this->client->getCommand('GetObject', array_merge($defaultParams, $params));
-        $request = $this->client->createPresignedRequest($command, "+{$expires} seconds");
+        $command = $this->publicClient->getCommand('GetObject', array_merge($defaultParams, $params));
+        $request = $this->publicClient->createPresignedRequest($command, "+{$expires} seconds");
 
         return (string) $request->getUri();
     }
@@ -481,9 +484,9 @@ class S3Expand implements ExpandInterface
         return hash_hmac('sha256', $policy, $signingKey);
     }
 
-    private function buildUploadHost(string $bucket): string
+    private function buildUploadHost(string $bucket, ?string $endpoint = null): string
     {
-        $endpoint = rtrim((string) ($this->config['endpoint'] ?? ''), '/');
+        $endpoint = rtrim((string) ($endpoint ?? ''), '/');
         if ($endpoint === '') {
             return '';
         }
@@ -505,7 +508,7 @@ class S3Expand implements ExpandInterface
         return $parts['scheme'] . '://' . $authority;
     }
 
-    private function createS3Client(array $config): S3Client
+    private function createS3Client(array $config, bool $preferInternalEndpoint = true): S3Client
     {
         $clientConfig = [
             'version' => $config['version'] ?? 'latest',
@@ -517,8 +520,11 @@ class S3Expand implements ExpandInterface
             ],
         ];
 
-        if (! empty($config['endpoint'])) {
-            $clientConfig['endpoint'] = $config['endpoint'];
+        $endpoint = $preferInternalEndpoint
+            ? ($config['internal_endpoint'] ?? $config['endpoint'] ?? null)
+            : ($config['endpoint'] ?? null);
+        if (! empty($endpoint)) {
+            $clientConfig['endpoint'] = $endpoint;
         }
 
         if (! empty($config['sessionToken'])) {
@@ -526,5 +532,15 @@ class S3Expand implements ExpandInterface
         }
 
         return new S3Client($clientConfig);
+    }
+
+    private function getPublicEndpoint(): ?string
+    {
+        return $this->config['endpoint'] ?? null;
+    }
+
+    private function getInternalEndpoint(): ?string
+    {
+        return $this->config['internal_endpoint'] ?? null;
     }
 }
