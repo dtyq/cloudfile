@@ -67,6 +67,11 @@ class AppendUploadFile
         return $this->dir;
     }
 
+    public function setDir(string $dir): void
+    {
+        $this->dir = $dir;
+    }
+
     public function getMimeType(): string
     {
         if (empty($this->mimeType)) {

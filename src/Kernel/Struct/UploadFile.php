@@ -65,6 +65,11 @@ class UploadFile
         return $prefix;
     }
 
+    public function setDir(string $dir): void
+    {
+        $this->dir = $dir;
+    }
+
     public function getDir(): string
     {
         return $this->dir;

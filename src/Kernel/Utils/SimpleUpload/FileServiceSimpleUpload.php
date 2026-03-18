@@ -31,12 +31,14 @@ class FileServiceSimpleUpload extends SimpleUpload
     public function uploadObject(array $credential, UploadFile $uploadFile): void
     {
         $simpleUpload = $this->getSimpleUpload($credential);
+        $uploadFile->setDir($this->stripCredentialDirPrefix($credential, $uploadFile->getDir()));
         $simpleUpload->uploadObject($credential, $uploadFile);
     }
 
     public function appendUploadObject(array $credential, AppendUploadFile $appendUploadFile): void
     {
         $simpleUpload = $this->getSimpleUpload($credential);
+        $appendUploadFile->setDir($this->stripCredentialDirPrefix($credential, $appendUploadFile->getDir()));
         $simpleUpload->appendUploadObject($credential, $appendUploadFile);
     }
 
@@ -51,6 +53,7 @@ class FileServiceSimpleUpload extends SimpleUpload
     public function uploadObjectByChunks(array $credential, ChunkUploadFile $chunkUploadFile): void
     {
         $simpleUpload = $this->getSimpleUpload($credential);
+        $chunkUploadFile->setDir($this->stripCredentialDirPrefix($credential, $chunkUploadFile->getDir()));
         $simpleUpload->uploadObjectByChunks($credential, $chunkUploadFile);
     }
 
@@ -176,6 +179,18 @@ class FileServiceSimpleUpload extends SimpleUpload
     {
         $simpleUpload = $this->getSimpleUpload($credential);
         $simpleUpload->setHeadObjectByCredential($credential, $objectKey, $metadata, $options);
+    }
+
+    /**
+     * 去掉 dir 中与凭证 dir 完全一致的前缀部分.
+     */
+    private function stripCredentialDirPrefix(array $credential, string $dir): string
+    {
+        $credentialDir = $credential['temporary_credential']['dir'] ?? '';
+        if ($credentialDir !== '' && str_starts_with($dir, $credentialDir)) {
+            return substr($dir, strlen($credentialDir));
+        }
+        return $dir;
     }
 
     private function getSimpleUpload(array $credential): SimpleUpload
