@@ -49,6 +49,17 @@ class FileServiceApi
         }
         if (! empty($credentialPolicy->getDir())) {
             $policy['dir'] = $credentialPolicy->getDir();
+            $organizationCode = $options['organization-code'] ?? '';
+            if (! empty($organizationCode) && str_starts_with($policy['dir'], $organizationCode)) {
+                // 如果 dir 已经具有了 organization-code 的前缀，要去掉，因为 file-service 会自动携带，要去掉避免重复
+                $orgData = explode('/', $policy['dir']);
+                $organizationCode = $orgData[0] ?? '';
+                $appId = $orgData[1] ?? '';
+                if (! empty($organizationCode) && ! empty($appId)) {
+                    // 去掉 dir 中的 organization-code 和 app_id 前缀
+                    $policy['dir'] = substr($policy['dir'], strlen($organizationCode) + strlen($appId) + 2);
+                }
+            }
         }
         if (! empty($credentialPolicy->getStsType())) {
             $policy['sts_type'] = $credentialPolicy->getStsType();

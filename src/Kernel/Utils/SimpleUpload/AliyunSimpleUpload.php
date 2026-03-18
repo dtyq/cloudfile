@@ -669,6 +669,13 @@ class AliyunSimpleUpload extends SimpleUpload
             // For OSS signUrl, response override parameters are set directly in options array
             $signedUrlOptions = [];
 
+            // Apply custom query parameters first
+            if (isset($options['custom_query']) && is_array($options['custom_query'])) {
+                $signedUrlOptions = $options['custom_query'];
+                // 阿里云不允许 response-content-type
+                unset($signedUrlOptions['response-content-type']);
+            }
+
             // Set response headers if specified
             if (isset($options['filename'])) {
                 $filename = $options['filename'];
@@ -679,16 +686,30 @@ class AliyunSimpleUpload extends SimpleUpload
             // Handle image processing parameters (only for GET method)
             $method = strtoupper($options['method'] ?? 'GET');
             if ($method === 'GET' && isset($options['image']) && EasyFileTools::isImage($objectKey)) {
+                $paramName = $this->imageProcessor->getParameterName();
                 // Support new ImageProcessOptions object
                 if ($options['image'] instanceof ImageProcessOptions) {
                     $processString = $this->imageProcessor->buildProcessString($options['image']);
                     if (! empty($processString)) {
-                        $signedUrlOptions[$this->imageProcessor->getParameterName()] = $processString;
+                        if (! empty($signedUrlOptions[$paramName])) {
+                            // 已存在处理参数，追加新的处理指令（去掉 image/ 前缀避免重复）
+                            $newPart = preg_replace('/^image\//', '', $processString);
+                            $signedUrlOptions[$paramName] = rtrim($signedUrlOptions[$paramName], '/') . '/' . $newPart;
+                        } else {
+                            $signedUrlOptions[$paramName] = $processString;
+                        }
                     }
                 }
                 // Backward compatibility: support old process string
                 elseif (! empty($options['image']['process'])) {
-                    $signedUrlOptions[$this->imageProcessor->getParameterName()] = $options['image']['process'];
+                    $processString = $options['image']['process'];
+                    if (! empty($signedUrlOptions[$paramName])) {
+                        // 已存在处理参数，追加新的处理指令（去掉 image/ 前缀避免重复）
+                        $newPart = preg_replace('/^image\//', '', $processString);
+                        $signedUrlOptions[$paramName] = rtrim($signedUrlOptions[$paramName], '/') . '/' . $newPart;
+                    } else {
+                        $signedUrlOptions[$paramName] = $processString;
+                    }
                 }
             }
 

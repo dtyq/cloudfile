@@ -904,16 +904,30 @@ class TosSimpleUpload extends SimpleUpload
             // Handle image processing parameters (only for GET method)
             $method = strtoupper($options['method'] ?? 'GET');
             if ($method === 'GET' && isset($options['image']) && EasyFileTools::isImage($objectKey)) {
+                $paramName = $this->imageProcessor->getParameterName();
                 // Support new ImageProcessOptions object
                 if ($options['image'] instanceof ImageProcessOptions) {
                     $processString = $this->imageProcessor->buildProcessString($options['image']);
                     if (! empty($processString)) {
-                        $query[$this->imageProcessor->getParameterName()] = $processString;
+                        if (! empty($query[$paramName])) {
+                            // 已存在处理参数，追加新的处理指令（去掉 image/ 前缀避免重复）
+                            $newPart = preg_replace('/^image\//', '', $processString);
+                            $query[$paramName] = rtrim($query[$paramName], '/') . '/' . $newPart;
+                        } else {
+                            $query[$paramName] = $processString;
+                        }
                     }
                 }
                 // Backward compatibility: support old process string
                 elseif (! empty($options['image']['process'])) {
-                    $query[$this->imageProcessor->getParameterName()] = $options['image']['process'];
+                    $processString = $options['image']['process'];
+                    if (! empty($query[$paramName])) {
+                        // 已存在处理参数，追加新的处理指令（去掉 image/ 前缀避免重复）
+                        $newPart = preg_replace('/^image\//', '', $processString);
+                        $query[$paramName] = rtrim($query[$paramName], '/') . '/' . $newPart;
+                    } else {
+                        $query[$paramName] = $processString;
+                    }
                 }
             }
 
