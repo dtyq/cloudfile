@@ -672,6 +672,8 @@ class AliyunSimpleUpload extends SimpleUpload
             // Apply custom query parameters first
             if (isset($options['custom_query']) && is_array($options['custom_query'])) {
                 $signedUrlOptions = $options['custom_query'];
+                // 阿里云不允许 response-content-type
+                unset($signedUrlOptions['response-content-type']);
             }
 
             // Set response headers if specified
