@@ -21,6 +21,8 @@ use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 use Dtyq\SdkBase\SdkBase;
 use OSS\Core\OssException;
 use OSS\Credentials\StaticCredentialsProvider;
+use OSS\Model\Tag;
+use OSS\Model\TaggingConfig;
 use OSS\OssClient;
 use Throwable;
 
@@ -746,6 +748,26 @@ class AliyunSimpleUpload extends SimpleUpload
     }
 
     /**
+     * 使用 OSS STS 逐项设置或清空完整标签集。
+     */
+    public function setTagsByCredential(array $credential, array $paths, array $tags, array $options = []): void
+    {
+        $config = $this->convertCredentialToSdkConfig($credential);
+        $client = $this->createOssClient($config);
+        $tagging = new TaggingConfig();
+        foreach ($tags as $tag) {
+            $tagging->addTag(new Tag($tag['key'], $tag['value']));
+        }
+        foreach ($paths as $path) {
+            if ($tags === []) {
+                $client->deleteObjectTagging($config['bucket'], $path);
+            } else {
+                $client->putObjectTagging($config['bucket'], $path, $tagging);
+            }
+        }
+    }
+
+    /**
      * Delete multiple objects by credential using Aliyun OSS SDK.
      *
      * @param array $credential Credential information
@@ -786,13 +808,12 @@ class AliyunSimpleUpload extends SimpleUpload
                 ]);
 
                 // Execute batch delete using Aliyun OSS deleteObjects method
-                $deleteResult = $ossClient->deleteObjects($sdkConfig['bucket'], $chunk);
+                $deleteResult = $ossClient->deleteObjects($sdkConfig['bucket'], $chunk, ['quiet' => false]);
 
-                // Process results - Aliyun OSS deleteObjects returns array of successfully deleted objects
-                // If no exceptions are thrown, all objects in the chunk were successfully deleted
-                foreach ($chunk as $objectKey) {
+                // 仅记录云端响应明确确认的成功项，不能按请求清单推断全部成功。
+                foreach ($deleteResult as $objectKey) {
                     $allDeleted[] = [
-                        'key' => $objectKey,
+                        'key' => (string) $objectKey,
                         'version_id' => null, // Aliyun doesn't return version info for simple delete
                         'delete_marker' => false,
                         'delete_marker_version_id' => null,
@@ -927,6 +948,31 @@ class AliyunSimpleUpload extends SimpleUpload
     }
 
     /**
+     * Create OSS client - using OSS SDK v2 approach.
+     */
+    protected function createOssClient(array $config): OssClient
+    {
+        $endpoint = $config['endpoint'];
+        $accessKeyId = $config['accessKeyId'];
+        $accessKeySecret = $config['accessKeySecret'];
+        $securityToken = $config['securityToken'] ?? null;
+        $region = $config['region'] ?? 'cn-hangzhou';
+
+        // Use StaticCredentialsProvider to create credential provider (supports STS)
+        $provider = new StaticCredentialsProvider($accessKeyId, $accessKeySecret, $securityToken);
+
+        // OSS SDK v2 configuration
+        $ossConfig = [
+            'provider' => $provider,
+            'endpoint' => $endpoint,
+            'signatureVersion' => OssClient::OSS_SIGNATURE_VERSION_V4,
+            'region' => $region,
+        ];
+
+        return new OssClient($ossConfig);
+    }
+
+    /**
      * Upload single object using STS credential via OSS SDK.
      * @see https://help.aliyun.com/zh/oss/developer-reference/simple-upload
      */
@@ -1022,31 +1068,6 @@ class AliyunSimpleUpload extends SimpleUpload
             'dir' => $tempCredential['dir'],
             'region' => $signingRegion,
         ];
-    }
-
-    /**
-     * Create OSS client - using OSS SDK v2 approach.
-     */
-    private function createOssClient(array $config): OssClient
-    {
-        $endpoint = $config['endpoint'];
-        $accessKeyId = $config['accessKeyId'];
-        $accessKeySecret = $config['accessKeySecret'];
-        $securityToken = $config['securityToken'] ?? null;
-        $region = $config['region'] ?? 'cn-hangzhou';
-
-        // Use StaticCredentialsProvider to create credential provider (supports STS)
-        $provider = new StaticCredentialsProvider($accessKeyId, $accessKeySecret, $securityToken);
-
-        // OSS SDK v2 configuration
-        $ossConfig = [
-            'provider' => $provider,
-            'endpoint' => $endpoint,
-            'signatureVersion' => OssClient::OSS_SIGNATURE_VERSION_V4,
-            'region' => $region,
-        ];
-
-        return new OssClient($ossConfig);
     }
 
     private function aliyunCalcStringToSign($method, $date, array $headers, $resourcePath, array $query): string

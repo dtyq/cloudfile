@@ -7,9 +7,11 @@ declare(strict_types=1);
 
 namespace Dtyq\CloudFile\Kernel;
 
+use Dtyq\CloudFile\Kernel\Constant\StsType;
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
 use Dtyq\CloudFile\Kernel\Driver\FileService\FileServiceApi;
 use Dtyq\CloudFile\Kernel\Driver\ImageProcessInterface;
+use Dtyq\CloudFile\Kernel\Driver\ObjectTaggingInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\AppendUploadFile;
@@ -20,8 +22,11 @@ use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
 use Dtyq\CloudFile\Kernel\Struct\FilePreSignedUrl;
 use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
+use Dtyq\CloudFile\Kernel\Struct\ObjectTagSet;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
+use Dtyq\CloudFile\Kernel\Utils\BatchDelete;
 use Dtyq\CloudFile\Kernel\Utils\EasyFileTools;
+use Dtyq\CloudFile\Kernel\Utils\FileMutationPaths;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\AliyunSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\FileServiceSimpleUpload;
@@ -30,6 +35,7 @@ use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\S3SimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\TosSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\StrUtil;
 use Dtyq\SdkBase\SdkBase;
+use InvalidArgumentException;
 use League\Flysystem\Filesystem;
 use League\Flysystem\FilesystemAdapter;
 use League\Flysystem\PathNormalizer;
@@ -352,10 +358,51 @@ class FilesystemProxy extends Filesystem
     }
 
     /**
-     * 删除文件.
+     * 为多个文件替换同一份完整标签集，文件服务存储使用 STS，失败仅记录日志。
+     *
+     * @param array<string> $paths
+     * @param array<array{key: string, value: string}> $tags
+     */
+    public function setTags(array $paths, array $tags, array $options = []): void
+    {
+        $tagSet = new ObjectTagSet($tags);
+        $paths = FileMutationPaths::normalize($paths);
+        if ($paths === []) {
+            return;
+        }
+        if ($this->adapterName === AdapterName::FILE_SERVICE) {
+            $this->mutateByCredential('tags', $paths, $tagSet->toArray(), $options);
+            return;
+        }
+        if (! $this->expand instanceof ObjectTaggingInterface) {
+            throw new CloudFileException('当前存储驱动不支持对象标签');
+        }
+        $this->expand->setTags($paths, $tagSet->toArray(), $this->mergeOptions($options));
+    }
+
+    /**
+     * 清空多个文件的全部标签，不删除文件对象。
+     *
+     * @param array<string> $paths
+     */
+    public function deleteTags(array $paths, array $options = []): void
+    {
+        $this->setTags($paths, [], $options);
+    }
+
+    /**
+     * 删除文件，文件服务存储使用 STS 且失败仅记日志，不清理服务端元信息。
      */
     public function destroy(array $paths, array $options = []): void
     {
+        $paths = FileMutationPaths::normalize($paths);
+        if ($paths === []) {
+            return;
+        }
+        if ($this->adapterName === AdapterName::FILE_SERVICE) {
+            $this->mutateByCredential('destroy', $paths, [], $options);
+            return;
+        }
         $options = $this->mergeOptions($options);
         $this->expand->destroy($paths, $options);
     }
@@ -562,6 +609,42 @@ class FilesystemProxy extends Filesystem
             throw new CloudFileException("adapter not found | [{$this->adapterName}]");
         }
         return $this->simpleUploadInstances[$platform];
+    }
+
+    /**
+     * 通过缓存的限定身份 STS 执行对象变更，不通知文件服务或清理其数据库元信息。
+     */
+    private function mutateByCredential(string $operation, array $paths, array $tags, array $options): void
+    {
+        $options = $this->mergeOptions($options);
+        // 变更凭证始终通过受保护入口申请，不能借内部路由绕过组织隔离。
+        $options['internal'] = false;
+        unset($options['expires']);
+        $policy = new CredentialPolicy([
+            'sts' => true,
+            'sts_type' => $operation === 'tags' ? StsType::OBJECT_TAGGING : StsType::DEL_OBJECTS,
+        ]);
+        try {
+            $credential = $this->getUploadTemporaryCredential($policy, $options);
+            FileMutationPaths::assertWithinDirectory($paths, $credential['temporary_credential']['dir'] ?? '');
+            $storage = $this->getSimpleUploadInstance($this->adapterName);
+            if ($operation === 'tags') {
+                $storage->setTagsByCredential($credential, $paths, $tags, $options);
+            } else {
+                $result = $storage->deleteObjectsByCredential($credential, $paths, array_replace($options, ['quiet' => false]));
+                $deleted = array_map(static fn (array $item): string => $item['key'] ?? $item['Key'] ?? '', $result['deleted'] ?? []);
+                BatchDelete::assertSucceeded($paths, $deleted, $result['errors'] ?? []);
+            }
+        } catch (InvalidArgumentException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            $this->container->getLogger()->warning('STS 文件变更失败', [
+                'operation' => $operation,
+                'item_count' => count($paths),
+                'exception_type' => get_class($exception),
+                'error_code' => $exception->getCode(),
+            ]);
+        }
     }
 
     /**

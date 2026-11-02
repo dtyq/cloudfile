@@ -166,6 +166,14 @@ class FileServiceSimpleUpload extends SimpleUpload
     }
 
     /**
+     * 将 STS 标签操作派发到凭证对应平台，不请求文件服务标签接口。
+     */
+    public function setTagsByCredential(array $credential, array $paths, array $tags, array $options = []): void
+    {
+        $this->getSimpleUpload($credential)->setTagsByCredential($credential, $paths, $tags, $options);
+    }
+
+    /**
      * Set object metadata by credential.
      *
      * @param array $credential Credential array

@@ -29,6 +29,55 @@
 - [x] 批量获取可访问链接
 - [x] 获取文件元数据
 
+## 批量标签与文件删除
+
+```php
+$filesystem = $cloudFile->get('file_service_test');
+$paths = ['mock-org/1001/a.txt', 'mock-org/1001/b.txt'];
+$options = ['token' => 'mock-token', 'organization-code' => 'mock-org'];
+
+// 同一份完整标签集应用于所有目标，未提交的旧标签会被移除。
+$filesystem->setTags($paths, [
+    ['key' => 'verification_state', 'value' => 'pending'],
+    ['key' => 'source', 'value' => 'example'],
+], $options);
+
+// 清空文件标签，不删除文件；等价于 setTags($paths, [], $options)。
+$filesystem->deleteTags($paths, $options);
+
+// 直接删除文件，不依赖标签。
+$filesystem->destroy($paths, $options);
+```
+
+- 标签设置和清空支持文件服务、OSS、TOS、MinIO/S3 兼容驱动；Local 及未实现标签能力的自定义扩展会明确报不支持。
+- 标签格式为最多 10 项的 `key`/`value` 列表，键唯一、非空且最多 128 字符，值最多 256 字符，可为空字符串。空标签集合表示清空全部标签。路径和标签格式错误仍作为本地参数异常抛出。
+- 标签设置、清空和文件删除每次最多接收 100 项路径，去重前检查数量，超过上限或列表格式错误直接抛出参数异常，不自动拆批；空列表不发请求。
+- 文件服务存储的这三个公开入口通过 STS 直连对应平台，不调用 `/file/tags` 或 `/file/destroy`。标签按需申请 `object_tagging`，删除申请 `del_objects`，执行前整批核对目标是否位于凭证返回的授权目录。凭证始终通过受保护接口获取，`internal=true` 不放宽变更身份隔离。
+- 变更凭证范围为当前组织、应用目录，复用既有 PSR 缓存，键包含存储配置、身份选项和权限；临近到期重新申请，`cache=false` 跳过读取。实际减少换证请求需要调用方提供有效的缓存实现，不能使用 NoCache 后仍假定会复用。
+- STS 删除只删除存储对象，**不通知文件服务，也不删除其数据库元信息**。
+- 文件服务存储的变更入口中，换证或存储操作失败只记日志；本地参数、目录越界错误仍抛出。标签和删除以外的凭证、链接、复制等入口保留原有失败行为。云端变更不自动重试；换证沿用既有有限重试。
+- 三个入口为 void：**文件服务存储调用未抛异常不代表操作成功**，应检查日志或独立存储核验。删除后才能更新业务状态的调用方，不能仅凭 `destroy()` 正常返回判断成功。
+- OSS/TOS/S3 删除均使用官方批量接口，检查响应中的逐项失败和遗漏目标；直连存储保留抛异常语义，文件服务存储则记录失败日志。标签使用逐对象原生接口，清空标签不删除文件。
+- 标签仍按同步语义逐文件调用原生设置/清空接口；未接入异步批处理作业。组织上下文由调用方通过 `organization-code` 传入，不在 SDK 内设置固定组织。
+- 仅上述文件服务变更请求采用日志降级；临时凭证、文件链接、复制等仍保留原有失败行为。直接 OSS/TOS/S3 驱动的存储异常仍向上传播。
+- 标签整组替换和批量文件操作都不保证原子性；不提供并发合并、历史版本操作或自动清理任务。直接存储驱动需具备相应的对象标签权限。
+
+## 独立获取标签 STS 凭证
+
+`getUploadTemporaryCredential()` 同样支持标签权限，方法名沿用原有接口：
+
+```php
+$policy = new \Dtyq\CloudFile\Kernel\Struct\CredentialPolicy([
+    'sts' => true,
+    'sts_type' => 'object_tagging',
+    'dir' => 'example/',
+    'expires' => 3600,
+]);
+$credential = $filesystem->getUploadTemporaryCredential($policy, $options);
+```
+
+也可传 `upload_objects|object_tagging` 或 `list_objects|object_tagging` 组合申请。该能力支持文件服务取证以及直连 OSS/TOS/S3 的策略生成；文件服务需先部署支持 `object_tagging` 的版本，云端角色也需具备相应权限。凭证含敏感信息，不应输出到日志。
+
 ## 注意事项
 如果要使用直连的阿里云、火山云，要先安装相应的FilesystemAdapter，如
 
@@ -330,3 +379,15 @@ $filesystem->destroy('my-folder/test.txt');
 - `cloudfile` 对外暴露的是 `minio` 适配器，内部复用的是 S3 协议实现
 - 直连 `minio` 与 `file_service + platform=minio` 共享同一套 credential 语义，避免两套接入心智
 ```
+
+## 真实标签与删除集成测试
+
+`tests/Integration/RealFileMutationTest.php` 沿用 `CloudFileBaseTest`，读取真实 `storages.json`，分别运行 `testTags` 和 `testDestroy`。每个测试只创建随机目录中的合成文件，并在 `finally` 中清理；文件服务请求失败会通过日志计数让测试失败。
+
+```bash
+CLOUDFILE_RUN_REAL_TESTS=1 \
+CLOUDFILE_TEST_CONFIG=/absolute/path/to/storages.json \
+vendor/bin/phpunit tests/Integration/RealFileMutationTest.php
+```
+
+默认不执行真实写入。配置只读，不复制或输出凭证；覆盖文件服务 OSS/TOS、直连 OSS/TOS。

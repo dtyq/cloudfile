@@ -10,6 +10,7 @@ namespace Dtyq\CloudFile\Kernel\Driver\TOS;
 use DateTime;
 use Dtyq\CloudFile\Kernel\AdapterName;
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
+use Dtyq\CloudFile\Kernel\Driver\ObjectTaggingInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadConfig;
@@ -19,7 +20,9 @@ use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
 use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
 use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
+use Dtyq\CloudFile\Kernel\Utils\BatchDelete;
 use Dtyq\CloudFile\Kernel\Utils\ContentDispositionBuilder;
+use Dtyq\CloudFile\Kernel\Utils\FileMutationPaths;
 use Dtyq\CloudFile\Kernel\Utils\ResultFormatter;
 use Dtyq\CloudFile\Kernel\Utils\RetryExecutor;
 use Dtyq\CloudFile\Kernel\Utils\StsPolicyBuilder;
@@ -28,15 +31,20 @@ use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\FileAttributes;
 use Tos\Config\ConfigParser;
 use Tos\Model\CopyObjectInput;
-use Tos\Model\DeleteObjectInput;
+use Tos\Model\DeleteMultiObjectsInput;
+use Tos\Model\DeleteObjectTaggingInput;
 use Tos\Model\Enum;
 use Tos\Model\GetObjectInput;
 use Tos\Model\HeadObjectInput;
+use Tos\Model\ObjectTobeDeleted;
 use Tos\Model\PreSignedURLInput;
+use Tos\Model\PutObjectTaggingInput;
+use Tos\Model\Tag;
+use Tos\Model\TagSet;
 use Tos\TosClient;
 use Volc\Service\Sts;
 
-class TOSExpand implements ExpandInterface
+class TOSExpand implements ExpandInterface, ObjectTaggingInterface
 {
     private ConfigParser $configParser;
 
@@ -89,11 +97,38 @@ class TOSExpand implements ExpandInterface
         return $list;
     }
 
+    /**
+     * 逐项替换 TOS 对象完整标签集，空集合调用原生清空接口。
+     */
+    public function setTags(array $paths, array $tags, array $options = []): void
+    {
+        $paths = FileMutationPaths::normalize($paths);
+        $items = [];
+        foreach ($tags as $tag) {
+            $items[] = new Tag($tag['key'], $tag['value']);
+        }
+        foreach ($paths as $path) {
+            if ($tags === []) {
+                $this->client->deleteObjectTagging(new DeleteObjectTaggingInput($this->getBucket(), $path));
+            } else {
+                $this->client->putObjectTagging(new PutObjectTaggingInput($this->getBucket(), $path, '', new TagSet($items)));
+            }
+        }
+    }
+
+    /**
+     * 使用 TOS 原生批量删除，核对详细响应中的成功项和失败项。
+     */
     public function destroy(array $paths, array $options = []): void
     {
-        foreach ($paths as $path) {
-            $this->client->deleteObject(new DeleteObjectInput($this->getBucket(), $path));
+        $paths = FileMutationPaths::normalize($paths);
+        if ($paths === []) {
+            return;
         }
+        $objects = array_map(static fn (string $path) => new ObjectTobeDeleted($path), $paths);
+        $result = $this->client->deleteMultiObjects(new DeleteMultiObjectsInput($this->getBucket(), $objects, false));
+        $deleted = array_map(static fn ($object): string => $object->getKey(), $result->getDeleted());
+        BatchDelete::assertSucceeded($paths, $deleted, $result->getError());
     }
 
     public function duplicate(string $source, string $destination, array $options = []): string

@@ -12,6 +12,7 @@ use AlibabaCloud\Sts\Sts;
 use DateTime;
 use Dtyq\CloudFile\Kernel\AdapterName;
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
+use Dtyq\CloudFile\Kernel\Driver\ObjectTaggingInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadConfig;
@@ -21,8 +22,10 @@ use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
 use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
 use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
+use Dtyq\CloudFile\Kernel\Utils\BatchDelete;
 use Dtyq\CloudFile\Kernel\Utils\ContentDispositionBuilder;
 use Dtyq\CloudFile\Kernel\Utils\EasyFileTools;
+use Dtyq\CloudFile\Kernel\Utils\FileMutationPaths;
 use Dtyq\CloudFile\Kernel\Utils\ResultFormatter;
 use Dtyq\CloudFile\Kernel\Utils\RetryExecutor;
 use Dtyq\CloudFile\Kernel\Utils\StsPolicyBuilder;
@@ -31,9 +34,11 @@ use InvalidArgumentException;
 use League\Flysystem\FileAttributes;
 use OSS\Core\OssException;
 use OSS\Credentials\StaticCredentialsProvider;
+use OSS\Model\Tag;
+use OSS\Model\TaggingConfig;
 use OSS\OssClient;
 
-class OSSExpand implements ExpandInterface
+class OSSExpand implements ExpandInterface, ObjectTaggingInterface
 {
     private array $config;
 
@@ -90,11 +95,37 @@ class OSSExpand implements ExpandInterface
         return $list;
     }
 
+    /**
+     * 逐项替换 OSS 对象完整标签集，空集合调用原生清空接口。
+     */
+    public function setTags(array $paths, array $tags, array $options = []): void
+    {
+        $paths = FileMutationPaths::normalize($paths);
+        $config = new TaggingConfig();
+        foreach ($tags as $tag) {
+            $config->addTag(new Tag($tag['key'], $tag['value']));
+        }
+        foreach ($paths as $path) {
+            if ($tags === []) {
+                $this->client->deleteObjectTagging($this->bucket, $path);
+            } else {
+                $this->client->putObjectTagging($this->bucket, $path, $config);
+            }
+        }
+    }
+
+    /**
+     * 使用 OSS 原生批量删除并核对完整成功清单，单次请求最多 100 项。
+     */
     public function destroy(array $paths, array $options = []): void
     {
-        foreach ($paths as $path) {
-            $this->client->deleteObject($this->bucket, $path);
+        $paths = FileMutationPaths::normalize($paths);
+        if ($paths === []) {
+            return;
         }
+        $result = $this->client->deleteObjects($this->bucket, $paths, ['quiet' => false]);
+        $deleted = array_map(static fn ($path): string => (string) $path, $result);
+        BatchDelete::assertSucceeded($paths, $deleted);
     }
 
     public function duplicate(string $source, string $destination, array $options = []): string

@@ -8,10 +8,12 @@ declare(strict_types=1);
 namespace Dtyq\CloudFile\Kernel\Driver\FileService;
 
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
+use Dtyq\CloudFile\Kernel\Utils\FileMutationPaths;
 use Dtyq\CloudFile\Kernel\Utils\ResultFormatter;
 use Dtyq\SdkBase\Kernel\Constant\RequestMethod;
 use Dtyq\SdkBase\SdkBase;
 use GuzzleHttp\RequestOptions;
+use Throwable;
 
 class FileServiceApi
 {
@@ -123,15 +125,20 @@ class FileServiceApi
         ], $options);
     }
 
+    /**
+     * 批量删除文件，文件服务请求失败只记录日志。
+     */
     public function destroy(array $paths, array $options = []): void
     {
-        $route = FileServiceRouteManager::get('destroy', $options);
+        $this->mutate('destroy', $paths, [], $options);
+    }
 
-        $this->post($route, [
-            'platform' => $this->platform,
-            'key' => $this->key,
-            'file_paths' => $paths,
-        ], $options);
+    /**
+     * 批量设置或清空标签，文件服务请求失败只记录日志。
+     */
+    public function setTags(array $paths, array $tags, array $options = []): void
+    {
+        $this->mutate('tags', $paths, ['tags' => $tags], $options);
     }
 
     public function copy(string $sourcePath, string $toPath, array $options = []): string
@@ -149,12 +156,50 @@ class FileServiceApi
     }
 
     /**
-     * 为本次操作生成随机请求标识，并向文件服务发送请求。
+     * 单次提交最多 100 项变更，本地参数错误抛出，远端请求失败仅记日志。
      */
-    private function post(string $path, array $body, array $options): array
+    private function mutate(string $operation, array $paths, array $parameters, array $options): void
+    {
+        $paths = FileMutationPaths::normalize($paths);
+        if ($paths === []) {
+            return;
+        }
+        $requestId = null;
+        try {
+            $requestId = $this->createRequestId();
+            $route = FileServiceRouteManager::get($operation, $options);
+            $this->post($route, array_merge([
+                'platform' => $this->platform,
+                'key' => $this->key,
+                'file_paths' => $paths,
+            ], $parameters), $options, $requestId);
+        } catch (Throwable $exception) {
+            // 不记录凭证、路径、请求体或完整响应，错误细节由既有请求日志负责。
+            $this->sdkContainer->getLogger()->warning('文件服务变更请求失败', [
+                'operation' => $operation,
+                'request_id' => $requestId,
+                'item_count' => count($paths),
+                'exception_type' => get_class($exception),
+                'error_code' => $exception->getCode(),
+            ]);
+        }
+    }
+
+    /**
+     * 生成随机请求标识，关联文件服务 HTTP 请求与变更失败日志。
+     */
+    private function createRequestId(): string
+    {
+        return $this->sdkContainer->getConfig()->getSdkName() . '_' . bin2hex(random_bytes(16));
+    }
+
+    /**
+     * 使用随机请求标识向文件服务发送请求，保留既有异常和响应语义。
+     */
+    private function post(string $path, array $body, array $options, ?string $requestId = null): array
     {
         $headers = [
-            'request-id' => $this->sdkContainer->getConfig()->getSdkName() . '_' . bin2hex(random_bytes(16)),
+            'request-id' => $requestId ?? $this->createRequestId(),
         ];
         $token = $options['token'] ?? '';
         if (empty($token)) {

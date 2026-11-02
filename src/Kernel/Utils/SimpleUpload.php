@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace Dtyq\CloudFile\Kernel\Utils;
 
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkUploadException;
+use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\AppendUploadFile;
 use Dtyq\CloudFile\Kernel\Struct\ChunkUploadFile;
 use Dtyq\CloudFile\Kernel\Struct\UploadFile;
@@ -93,6 +94,16 @@ abstract class SimpleUpload
      * @return array Delete result with success and error information
      */
     abstract public function deleteObjectsByCredential(array $credential, array $objectKeys, array $options = []): array;
+
+    /**
+     * 使用临时凭证替换或清空对象标签，未实现的存储明确拒绝。
+     *
+     * @param array<array{key: string, value: string}> $tags
+     */
+    public function setTagsByCredential(array $credential, array $paths, array $tags, array $options = []): void
+    {
+        throw new CloudFileException('当前存储不支持凭证标签操作');
+    }
 
     /**
      * Set object metadata by credential.

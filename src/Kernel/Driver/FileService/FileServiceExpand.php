@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace Dtyq\CloudFile\Kernel\Driver\FileService;
 
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
+use Dtyq\CloudFile\Kernel\Driver\ObjectTaggingInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadConfig;
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
@@ -18,7 +19,7 @@ use Dtyq\CloudFile\Kernel\Struct\ImageProcessOptions;
 use Dtyq\CloudFile\Kernel\Utils\RetryExecutor;
 use League\Flysystem\FileAttributes;
 
-class FileServiceExpand implements ExpandInterface
+class FileServiceExpand implements ExpandInterface, ObjectTaggingInterface
 {
     private FileServiceApi $fileServiceApi;
 
@@ -117,6 +118,14 @@ class FileServiceExpand implements ExpandInterface
             $links[$item['file_path']] = new FileLink($item['file_path'], $item['url'], $item['expires'], $item['download_name'] ?? '');
         }
         return $links;
+    }
+
+    /**
+     * 通过文件服务为一批对象设置完整标签集，空集合表示清空。
+     */
+    public function setTags(array $paths, array $tags, array $options = []): void
+    {
+        $this->fileServiceApi->setTags($paths, $tags, $options);
     }
 
     public function destroy(array $paths, array $options = []): void

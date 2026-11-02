@@ -12,6 +12,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * 云存储 STS 组合策略测试。
+ * @internal
+ * @coversNothing
  */
 class StsPolicyBuilderTest extends TestCase
 {
@@ -62,5 +64,20 @@ class StsPolicyBuilderTest extends TestCase
             'tos:ListMultipartUploadParts',
             'tos:GetObjectVersion',
         ], $policy['Statement'][0]['Action']);
+    }
+
+    /**
+     * 新标签类型仅增加标签写入和清空权限，不落入默认上传权限。
+     */
+    public function testObjectTaggingIsAnIsolatedPermission(): void
+    {
+        $builder = new StsPolicyBuilder();
+        foreach (['Oss' => 'oss', 'Tos' => 'tos', 'S3' => 's3'] as $name => $prefix) {
+            $policy = $builder->{'build' . $name}('mock-bucket', 'mock-dir/', ['object_tagging']);
+            self::assertCount(1, $policy['Statement']);
+            self::assertSame([$prefix . ':PutObjectTagging', $prefix . ':DeleteObjectTagging'], $policy['Statement'][0]['Action']);
+        }
+        $policy = $builder->buildS3('mock-bucket', '', ['object_tagging']);
+        self::assertSame('arn:aws:s3:::mock-bucket/*', $policy['Statement'][0]['Resource']);
     }
 }

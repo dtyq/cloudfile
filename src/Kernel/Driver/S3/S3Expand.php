@@ -11,6 +11,7 @@ use Aws\S3\S3Client;
 use Aws\Sts\StsClient;
 use Dtyq\CloudFile\Kernel\AdapterName;
 use Dtyq\CloudFile\Kernel\Driver\ExpandInterface;
+use Dtyq\CloudFile\Kernel\Driver\ObjectTaggingInterface;
 use Dtyq\CloudFile\Kernel\Exceptions\ChunkDownloadException;
 use Dtyq\CloudFile\Kernel\Exceptions\CloudFileException;
 use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadConfig;
@@ -19,6 +20,8 @@ use Dtyq\CloudFile\Kernel\Struct\ChunkDownloadInfo;
 use Dtyq\CloudFile\Kernel\Struct\CredentialPolicy;
 use Dtyq\CloudFile\Kernel\Struct\FileLink;
 use Dtyq\CloudFile\Kernel\Struct\FileMetadata;
+use Dtyq\CloudFile\Kernel\Utils\BatchDelete;
+use Dtyq\CloudFile\Kernel\Utils\FileMutationPaths;
 use Dtyq\CloudFile\Kernel\Utils\ResultFormatter;
 use Dtyq\CloudFile\Kernel\Utils\RetryExecutor;
 use Dtyq\CloudFile\Kernel\Utils\StsPolicyBuilder;
@@ -27,7 +30,7 @@ use GuzzleHttp\Psr7\Utils;
 use League\Flysystem\FileAttributes;
 use Throwable;
 
-class S3Expand implements ExpandInterface
+class S3Expand implements ExpandInterface, ObjectTaggingInterface
 {
     private array $config;
 
@@ -83,14 +86,44 @@ class S3Expand implements ExpandInterface
         return $list;
     }
 
+    /**
+     * 逐项替换 S3 兼容存储的完整标签集，空集合调用原生清空接口。
+     */
+    public function setTags(array $paths, array $tags, array $options = []): void
+    {
+        $paths = FileMutationPaths::normalize($paths);
+        $items = [];
+        foreach ($tags as $tag) {
+            $items[] = ['Key' => $tag['key'], 'Value' => $tag['value']];
+        }
+        foreach ($paths as $path) {
+            $parameters = ['Bucket' => $this->getBucket(), 'Key' => $path];
+            if ($tags === []) {
+                $this->client->deleteObjectTagging($parameters);
+            } else {
+                $parameters['Tagging'] = ['TagSet' => $items];
+                $this->client->putObjectTagging($parameters);
+            }
+        }
+    }
+
+    /**
+     * 使用 S3 原生批量删除，详细响应存在失败或遗漏目标时抛出异常。
+     */
     public function destroy(array $paths, array $options = []): void
     {
-        foreach ($paths as $path) {
-            $this->client->deleteObject([
-                'Bucket' => $this->getBucket(),
-                'Key' => $path,
-            ]);
+        $paths = FileMutationPaths::normalize($paths);
+        if ($paths === []) {
+            return;
         }
+        $result = $this->client->deleteObjects([
+            'Bucket' => $this->getBucket(),
+            'Delete' => [
+                'Objects' => array_map(static fn (string $path): array => ['Key' => $path], $paths),
+                'Quiet' => false,
+            ],
+        ]);
+        BatchDelete::assertSucceeded($paths, array_column($result['Deleted'] ?? [], 'Key'), $result['Errors'] ?? []);
     }
 
     public function duplicate(string $source, string $destination, array $options = []): string

@@ -35,6 +35,14 @@ final class StsPolicyBuilder
                 ]);
                 continue;
             }
+            if ($stsType === StsType::OBJECT_TAGGING) {
+                $this->appendStatement($statements, [
+                    'Action' => ['oss:PutObjectTagging', 'oss:DeleteObjectTagging'],
+                    'Resource' => ["acs:oss:*:*:{$resource}*"],
+                    'Effect' => 'Allow',
+                ]);
+                continue;
+            }
             if ($stsType === StsType::DEL_OBJECTS) {
                 $this->appendStatement($statements, [
                     'Action' => [
@@ -85,6 +93,14 @@ final class StsPolicyBuilder
                 ]);
                 continue;
             }
+            if ($stsType === StsType::OBJECT_TAGGING) {
+                $this->appendStatement($statements, [
+                    'Action' => ['tos:PutObjectTagging', 'tos:DeleteObjectTagging'],
+                    'Resource' => ["trn:tos:::{$resource}*"],
+                    'Effect' => 'Allow',
+                ]);
+                continue;
+            }
             if ($stsType === StsType::DEL_OBJECTS) {
                 $this->appendStatement($statements, [
                     'Action' => ['tos:DeleteObject', 'tos:DeleteObjectTagging'],
@@ -131,6 +147,14 @@ final class StsPolicyBuilder
                     'Condition' => [
                         'StringLike' => ['s3:prefix' => [$dir, "{$dir}*"]],
                     ],
+                ]);
+                continue;
+            }
+            if ($stsType === StsType::OBJECT_TAGGING) {
+                $this->appendStatement($statements, [
+                    'Action' => ['s3:PutObjectTagging', 's3:DeleteObjectTagging'],
+                    'Resource' => $dir === '' ? "{$bucketArn}/*" : $resource,
+                    'Effect' => 'Allow',
                 ]);
                 continue;
             }

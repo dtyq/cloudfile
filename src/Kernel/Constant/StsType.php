@@ -22,6 +22,8 @@ final class StsType
 
     public const SET_OBJECT_META = 'set_object_meta';
 
+    public const OBJECT_TAGGING = 'object_tagging';
+
     /**
      * 解析并规范化 STS 权限表达式。
      *
@@ -71,6 +73,7 @@ final class StsType
             self::LIST_OBJECTS,
             self::DEL_OBJECTS,
             self::SET_OBJECT_META,
+            self::OBJECT_TAGGING,
         ];
     }
 }

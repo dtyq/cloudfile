@@ -28,12 +28,16 @@ use Tos\Model\CopyObjectInput;
 use Tos\Model\CreateMultipartUploadInput;
 use Tos\Model\DeleteMultiObjectsInput;
 use Tos\Model\DeleteObjectInput;
+use Tos\Model\DeleteObjectTaggingInput;
 use Tos\Model\HeadObjectInput;
 use Tos\Model\ListObjectsInput;
 use Tos\Model\ObjectTobeDeleted;
 use Tos\Model\PreSignedURLInput;
 use Tos\Model\PutObjectInput;
+use Tos\Model\PutObjectTaggingInput;
 use Tos\Model\SetObjectMetaInput;
+use Tos\Model\Tag;
+use Tos\Model\TagSet;
 use Tos\Model\UploadedPart;
 use Tos\Model\UploadPartInput;
 use Tos\TosClient;
@@ -989,6 +993,23 @@ class TosSimpleUpload extends SimpleUpload
     }
 
     /**
+     * 使用 TOS STS 逐项设置或清空完整标签集。
+     */
+    public function setTagsByCredential(array $credential, array $paths, array $tags, array $options = []): void
+    {
+        $config = $this->convertCredentialToSdkConfig($credential);
+        $client = $this->createTosClient($config);
+        $items = array_map(static fn (array $tag) => new Tag($tag['key'], $tag['value']), $tags);
+        foreach ($paths as $path) {
+            if ($tags === []) {
+                $client->deleteObjectTagging(new DeleteObjectTaggingInput($config['bucket'], $path));
+            } else {
+                $client->putObjectTagging(new PutObjectTaggingInput($config['bucket'], $path, '', new TagSet($items)));
+            }
+        }
+    }
+
+    /**
      * Delete multiple objects by credential using TOS SDK.
      *
      * @param array $credential Credential information
@@ -1003,7 +1024,7 @@ class TosSimpleUpload extends SimpleUpload
             $sdkConfig = $this->convertCredentialToSdkConfig($credential);
 
             // Create TOS SDK client
-            $tosClient = new TosClient($sdkConfig);
+            $tosClient = $this->createTosClient($sdkConfig);
 
             // Validate input
             if (empty($objectKeys)) {
@@ -1219,6 +1240,14 @@ class TosSimpleUpload extends SimpleUpload
             ]);
             throw new CloudFileException('Set object metadata failed: ' . $exception->getMessage(), 0, $exception);
         }
+    }
+
+    /**
+     * 构造携带 STS 会话令牌的客户端，支持隔离测试注入。
+     */
+    protected function createTosClient(array $config): TosClient
+    {
+        return new TosClient($config);
     }
 
     /**

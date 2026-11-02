@@ -340,6 +340,25 @@ class S3SimpleUpload extends SimpleUpload
         return (string) $request->getUri();
     }
 
+    /**
+     * 使用 S3 STS 逐项设置或清空完整标签集。
+     */
+    public function setTagsByCredential(array $credential, array $paths, array $tags, array $options = []): void
+    {
+        $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
+        $client = $this->createS3Client($credential);
+        $items = array_map(static fn (array $tag): array => ['Key' => $tag['key'], 'Value' => $tag['value']], $tags);
+        foreach ($paths as $path) {
+            $parameters = ['Bucket' => $credential['bucket'], 'Key' => $path];
+            if ($tags === []) {
+                $client->deleteObjectTagging($parameters);
+            } else {
+                $parameters['Tagging'] = ['TagSet' => $items];
+                $client->putObjectTagging($parameters);
+            }
+        }
+    }
+
     public function deleteObjectsByCredential(array $credential, array $objectKeys, array $options = []): array
     {
         $credential = $this->normalizeCredential($this->unwrapTemporaryCredential($credential));
