@@ -61,6 +61,11 @@ class TOSDriver implements FilesystemAdapter
         return (bool) $meta->getContentLength();
     }
 
+    public function directoryExists(string $path): bool
+    {
+        throw new CloudFileException('暂不支持');
+    }
+
     public function write(string $path, string $contents, Config $config): void
     {
         $input = new PutObjectInput($this->getBucket(), $path, $contents);

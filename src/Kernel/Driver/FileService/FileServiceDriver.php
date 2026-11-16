@@ -31,6 +31,11 @@ class FileServiceDriver implements FilesystemAdapter
         throw new CloudFileException('暂不支持');
     }
 
+    public function directoryExists(string $path): bool
+    {
+        throw new CloudFileException('暂不支持');
+    }
+
     public function write(string $path, string $contents, Config $config): void
     {
         throw new CloudFileException('暂不支持');
