@@ -14,6 +14,16 @@
 
 抽离文件服务通用功能到包中，可不依赖文件服务即可使用。
 
+## Flysystem 版本兼容
+
+CloudFile 支持 `league/flysystem: ^2.1.1 || ^3.35.3`，由 Composer 根据应用约束选择一个版本，不会同时安装两个主版本。已有锁文件中的 2.x 不会因为放宽约束自动升级；需要升级的应用应明确要求 3.x，并更新、验证自己的锁文件。
+
+- 新接入及 PHP 8.4 场景推荐选择 Flysystem 3.35.3 或更高的 3.x；保留 2.x 仅用于旧应用兼容。
+- Flysystem 2.x 仍受 [CVE-2026-102601](https://github.com/advisories/GHSA-cxf4-7mrp-vvpr) 影响，启用安全阻断的 Composer 可能拒绝安装。双版本支持不表示 2.x 已完成安全修复，也不解决其 PHP 8.4 弃用警告。
+- 阿里云和 AWS 适配器保留各自的兼容版本范围，由 Composer 联合求解；应用若固定了适配器版本，也需检查其 Flysystem 要求。
+- 自定义 `FilesystemAdapter` 在使用 Flysystem 3 时必须实现 `directoryExists(string $path): bool`。内置 S3 驱动委托底层查询，本地驱动复用继承实现；TOS 和文件服务驱动显式抛出“不支持”异常。
+- `FilesystemProxy` 沿用所安装 Flysystem 的 API：2.x 不提供 3.x 新增的目录查询入口。升级后仍需验证应用实际使用的上传、下载和文件操作；第三方存储 SDK 的 PHP 兼容性需分别检查。
+
 ## 支持的云
 
  - 文件服务代理的 阿里云、火山云

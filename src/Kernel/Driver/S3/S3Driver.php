@@ -71,6 +71,14 @@ class S3Driver implements FilesystemAdapter
         return $this->adapter->fileExists($path);
     }
 
+    /**
+     * 委托底层适配器查询目录，保留查询结果与异常。
+     */
+    public function directoryExists(string $path): bool
+    {
+        return $this->adapter->directoryExists($path);
+    }
+
     public function write(string $path, string $contents, Config $config): void
     {
         $this->adapter->write($path, $contents, $config);
