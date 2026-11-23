@@ -32,11 +32,14 @@ class UploadFile
 
     private string $key = '';
 
+    private bool $allowSvgDataUri = false;
+
     public function __construct(string $realPath, string $dir = '', string $name = '', bool $rename = true)
     {
         $this->dir = $dir;
         $this->name = $name;
-        if (EasyFileTools::isUrl($realPath) || EasyFileTools::isBase64Image($realPath)) {
+        // data URI 一律延迟到解析时，由下载器按格式和 allowSvgDataUri 判断，便于构造后再设置开关
+        if (EasyFileTools::isUrl($realPath) || EasyFileTools::isDataUri($realPath)) {
             $this->isRemote = true;
             $this->remoteUrl = $realPath;
             $this->rename = $rename;
@@ -54,6 +57,21 @@ class UploadFile
 
         $this->rename = $rename;
         $rename && $this->rename();
+    }
+
+    /**
+     * 设置是否允许以 SVG data URI 上传，默认不允许。
+     *
+     * 只应由业务代码对可信来源显式开启，不能由请求参数、文件名或 MIME 决定。
+     * 开启后只放行格式解析，不清洗 SVG 内容；本地路径和 URL 上传不受此开关影响。
+     * 必须在读取 MIME、名称、大小、路径或上传之前调用。
+     */
+    public function setAllowSvgDataUri(bool $allowSvgDataUri): void
+    {
+        if ($this->isRemote && isset($this->realPath)) {
+            throw new CloudFileException('SVG data URI permission must be set before the file is resolved');
+        }
+        $this->allowSvgDataUri = $allowSvgDataUri;
     }
 
     public function getKeyPath(): string
@@ -146,7 +164,7 @@ class UploadFile
             return;
         }
 
-        $downloadedFile = (new SafeRemoteFileDownloader())->download($this->remoteUrl);
+        $downloadedFile = (new SafeRemoteFileDownloader())->download($this->remoteUrl, $this->allowSvgDataUri);
         $this->realPath = $downloadedFile->getRealPath();
         $this->size = $downloadedFile->getSize();
         $this->mimeType = $downloadedFile->getMimeType();

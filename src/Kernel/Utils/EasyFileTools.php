@@ -68,4 +68,25 @@ class EasyFileTools
         $decodedData = base64_decode($imageData);
         return $decodedData !== false;
     }
+
+    /**
+     * 判断字符串是否为 SVG 的 base64 data URI；只识别格式，不代表内容安全。
+     */
+    public static function isBase64SvgImage(string $str): bool
+    {
+        $data = explode(',', $str);
+        if (count($data) !== 2) {
+            return false;
+        }
+
+        return $data[0] === 'data:image/svg+xml;base64' && base64_decode($data[1], true) !== false;
+    }
+
+    /**
+     * 判断字符串是否为 data URI，用于在上传入口把 data URI 与本地路径区分开。
+     */
+    public static function isDataUri(string $str): bool
+    {
+        return stripos($str, 'data:') === 0;
+    }
 }

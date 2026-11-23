@@ -16,6 +16,9 @@ use Throwable;
  */
 class SafeRemoteFileDownloader
 {
+    // fileinfo 对 SVG 内容可能返回的 MIME 类型
+    private const SVG_MIME_TYPES = ['image/svg+xml', 'image/svg'];
+
     private RemoteDownloadSecurityConfig $securityConfig;
 
     private RemoteUrlSecurityValidator $urlSecurityValidator;
@@ -28,11 +31,13 @@ class SafeRemoteFileDownloader
 
     /**
      * 下载远程 URL 或 base64 图片到受控临时文件。
+     *
+     * @param bool $allowSvgDataUri 是否允许 SVG data URI；默认拒绝，只由调用方对可信来源显式开启
      */
-    public function download(string $source): DownloadedRemoteFile
+    public function download(string $source, bool $allowSvgDataUri = false): DownloadedRemoteFile
     {
-        if (EasyFileTools::isBase64Image($source)) {
-            return $this->decodeBase64Image($source);
+        if (EasyFileTools::isDataUri($source)) {
+            return $this->decodeBase64Image($source, $allowSvgDataUri);
         }
 
         if (! $this->securityConfig->isEnabled()) {
@@ -213,9 +218,21 @@ class SafeRemoteFileDownloader
 
     /**
      * 解码 base64 图片到临时文件，保持历史 base64 上传能力。
+     *
+     * 位图格式按历史行为放行；SVG 仅在调用方显式允许且声明为 image/svg+xml 时放行。
+     * 解码后按实际内容复核：SVG 内容必须以 SVG 声明，SVG 声明必须是 SVG 内容，避免以位图声明夹带 SVG。
+     * 错误信息不包含 data URI 原文，避免载荷进入异常和日志。
      */
-    private function decodeBase64Image(string $source): DownloadedRemoteFile
+    private function decodeBase64Image(string $source, bool $allowSvgDataUri): DownloadedRemoteFile
     {
+        $isSvgDataUri = EasyFileTools::isBase64SvgImage($source);
+        if (! $isSvgDataUri && ! EasyFileTools::isBase64Image($source)) {
+            throw new CloudFileException('Unsupported data URI type');
+        }
+        if ($isSvgDataUri && ! $allowSvgDataUri) {
+            throw new CloudFileException('SVG data URI is not allowed');
+        }
+
         [$header, $imageData] = explode(',', $source, 2);
         $decodedData = base64_decode($imageData, true);
         if ($decodedData === false) {
@@ -232,6 +249,11 @@ class SafeRemoteFileDownloader
         }
 
         $mimeType = mime_content_type($tempFile) ?: $this->getMimeTypeFromBase64Header($header);
+        // 位图之间的声明与内容不一致按历史行为放行（部分模型返回裸 base64 后被统一补 jpeg 头），只校验 SVG 声明与内容一一对应
+        if ($isSvgDataUri !== in_array($mimeType, self::SVG_MIME_TYPES, true)) {
+            @unlink($tempFile);
+            throw new CloudFileException('Data URI content does not match its declared image type');
+        }
         $extension = MimeTypes::getExtension($mimeType);
 
         return new DownloadedRemoteFile(

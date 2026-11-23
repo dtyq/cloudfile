@@ -234,6 +234,23 @@ $options = [
 $filesystem->uploadByCredential($uploadFile, $credentialPolicy, $options);
 ```
 
+### 上传 base64 data URI
+
+`UploadFile` 也接受 `data:image/<type>;base64,...` 形式的图片，默认支持 png、jpeg、jpg、gif、webp。
+
+SVG 可以携带脚本，默认拒绝。业务对可信来源（例如随代码发布的内置图标）需要上传 SVG data URI 时，在读取文件信息或上传之前显式开启：
+
+```php
+$uploadFile = new UploadFile($svgDataUri, 'default-files', 'icon.svg');
+$uploadFile->setAllowSvgDataUri(true);
+$filesystem->uploadByCredential($uploadFile, $credentialPolicy, $options);
+```
+
+- 开关只能由业务代码决定，不能来自请求参数、文件名或 MIME。
+- 开启后只放行格式解析，不清洗 SVG 内容；展示与访问侧的隔离仍由业务负责。
+- 本地路径和 URL 上传不受此开关影响。
+- 解码后按实际内容复核：SVG 内容只能以 `image/svg+xml` 声明，不能以位图声明绕过开关。
+
 ### 复制文件
 
 ```php
