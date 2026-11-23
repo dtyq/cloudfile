@@ -18,6 +18,9 @@ use PHPUnit\Framework\TestCase;
  */
 class UploadFileSecurityTest extends TestCase
 {
+    // 1x1 无损 webp 合成样例
+    private const WEBP_BASE64 = 'UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==';
+
     protected function tearDown(): void
     {
         RemoteDownloadSecurityConfig::reset();
@@ -64,6 +67,21 @@ class UploadFileSecurityTest extends TestCase
 
         $this->assertFileExists($realPath);
         $this->assertSame('image/png', $uploadFile->getMimeType());
+
+        $uploadFile->release();
+    }
+
+    /**
+     * 校验 webp data URI 与 png 等位图一样按 base64 图片上传。
+     */
+    public function testAcceptsWebpBase64Image(): void
+    {
+        $uploadFile = new UploadFile('data:image/webp;base64,' . self::WEBP_BASE64, 'safe-test', '', false);
+
+        $realPath = $uploadFile->getRealPath();
+
+        $this->assertFileExists($realPath);
+        $this->assertSame('image/webp', $uploadFile->getMimeType());
 
         $uploadFile->release();
     }

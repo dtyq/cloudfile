@@ -60,8 +60,8 @@ class EasyFileTools
         }
         $header = $data[0];
         $imageData = $data[1];
-        // 检查头部是否符合Base64编码图片的格式
-        if (! preg_match('/^data:image\/(png|jpeg|jpg|gif);base64$/', $header)) {
+        // 检查头部是否符合Base64编码图片的格式；只包含位图格式，SVG 可携带脚本，不在通用识别范围内
+        if (! preg_match('/^data:image\/(png|jpeg|jpg|gif|webp);base64$/', $header)) {
             return false;
         }
         // 检查Base64编码是否有效
