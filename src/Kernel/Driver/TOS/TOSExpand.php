@@ -566,6 +566,12 @@ class TOSExpand implements ExpandInterface, ObjectTaggingInterface
             return $data['Result']['Credentials'];
         });
 
+        // 使用服务端实际截止时间，避免缓存或签名超过临时凭证寿命。
+        $expiration = strtotime((string) ($credentials['ExpiredTime'] ?? ''));
+        if ($expiration === false || $expiration <= time()) {
+            throw new CloudFileException('Invalid STS credential expiration');
+        }
+
         return [
             'host' => $configParser->getEndpoint($this->getBucket()),
             'region' => $configParser->getRegion(),
@@ -573,7 +579,7 @@ class TOSExpand implements ExpandInterface, ObjectTaggingInterface
             'credentials' => $credentials,
             'bucket' => $this->getBucket(),
             'dir' => $credentialPolicy->getDir() ?? '',
-            'expires' => $expires,
+            'expires' => $expiration,
             'callback' => $callback,
         ];
     }

@@ -580,6 +580,12 @@ class OSSExpand implements ExpandInterface, ObjectTaggingInterface
             return $result;
         });
 
+        // 通用凭证缓存按绝对时间判断过期，不能返回会话时长。
+        $expiration = strtotime((string) ($sts['Credentials']['Expiration'] ?? ''));
+        if ($expiration === false || $expiration <= time()) {
+            throw new CloudFileException('Invalid STS credential expiration');
+        }
+
         return [
             'region' => 'oss-' . $stsRegion,
             'access_key_id' => $sts['Credentials']['AccessKeyId'],
@@ -588,7 +594,7 @@ class OSSExpand implements ExpandInterface, ObjectTaggingInterface
             'endpoint' => $config['endpoint'],
             'bucket' => $config['bucket'],
             'dir' => $credentialPolicy->getDir(),
-            'expires' => $expires,
+            'expires' => $expiration,
             'callback' => '',
         ];
     }

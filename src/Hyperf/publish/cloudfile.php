@@ -38,6 +38,8 @@ return [
     'storages' => [
         'file_service' => [
             'adapter' => 'file_service',
+            // 开启后对支持的平台优先使用 STS 取链，链接寿命受凭证限制。
+            'prefer_sts_for_links' => false,
             'config' => [
                 'host' => '',
                 'platform' => '',

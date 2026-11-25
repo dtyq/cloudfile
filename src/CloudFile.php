@@ -42,6 +42,11 @@ class CloudFile
 
         $storageConfig = $this->getStorageConfig($storage);
 
+        $preferStsForLinks = $storageConfig['prefer_sts_for_links'] ?? false;
+        if (! is_bool($preferStsForLinks)) {
+            throw new CloudFileException('prefer_sts_for_links must be a boolean');
+        }
+
         $adapterName = $storageConfig['adapter'] ?? '';
         if (empty($adapterName)) {
             throw new CloudFileException("adapter not found | [{$storage}]");
@@ -64,6 +69,7 @@ class CloudFile
         $proxy = new FilesystemProxy($this->container, $adapterName, $adapter, $config);
         $proxy->setOptions($options);
         $proxy->setIsPublicRead((bool) ($storageConfig['public_read'] ?? false));
+        $proxy->setPreferStsForLinks($preferStsForLinks);
         $this->resolvers[$storage] = $proxy;
         return $proxy;
     }

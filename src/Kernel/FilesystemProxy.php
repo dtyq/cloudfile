@@ -53,6 +53,9 @@ class FilesystemProxy extends Filesystem
 
     private bool $isPublicRead = false;
 
+    /** 是否优先使用已有 STS 能力生成读取链接。 */
+    private bool $preferStsForLinks = false;
+
     private string $publicDomain = '';
 
     private array $options = [];
@@ -284,8 +287,18 @@ class FilesystemProxy extends Filesystem
     public function getLinks(array $paths, array $downloadNames = [], int $expires = 3600, array $options = []): array
     {
         $options = $this->mergeOptions($options);
-        $paths = $this->formatPaths($paths);
         $platform = $this->config['platform'] ?? '';
+
+        $stsPlatform = $this->adapterName === AdapterName::FILE_SERVICE ? $platform : $this->adapterName;
+        if ($this->preferStsForLinks && in_array($stsPlatform, [
+            AdapterName::ALIYUN,
+            AdapterName::TOS,
+            AdapterName::MINIO,
+        ], true)) {
+            return $this->getLinksBySts($paths, $downloadNames, $expires, $options);
+        }
+
+        $paths = $this->formatPaths($paths);
 
         // Check if there are image processing parameters
         $hasImageProcessing = ! empty($options['image']);
@@ -565,6 +578,14 @@ class FilesystemProxy extends Filesystem
         $this->isPublicRead = $isPublicRead;
     }
 
+    /**
+     * 为当前存储开启或关闭 STS 优先取链，其他存储不受影响。
+     */
+    public function setPreferStsForLinks(bool $preferStsForLinks): void
+    {
+        $this->preferStsForLinks = $preferStsForLinks;
+    }
+
     public function setOptions(array $options): void
     {
         $this->options = $options;
@@ -676,6 +697,63 @@ class FilesystemProxy extends Filesystem
     private function getCache(string $key): mixed
     {
         return $this->container->getCache()->get($this->uniqueKey() . '_' . $key);
+    }
+
+    /**
+     * 复用一份临时凭证签名整批原始对象键，链接寿命不超过凭证剩余时间。
+     *
+     * @return array<string, FileLink>
+     */
+    private function getLinksBySts(array $paths, array $downloadNames, int $expires, array $options): array
+    {
+        if ($paths === []) {
+            return [];
+        }
+        if ($expires <= 0) {
+            throw new CloudFileException('Link expiry must be positive');
+        }
+
+        // 链接期限在取得凭证后裁剪，不能让长链接请求不断淘汰仍可复用的凭证。
+        $credentialOptions = $options;
+        unset($credentialOptions['expires']);
+        $credential = $this->getUploadTemporaryCredential(new CredentialPolicy([
+            'sts' => true,
+            'expires' => 3600,
+        ]), $credentialOptions);
+        $credentialExpires = $credential['expires'];
+        // 文件服务返回的 TOS 凭证包含服务端实际截止时间，应取更早值。
+        $tosExpiration = $credential['temporary_credential']['credentials']['ExpiredTime'] ?? null;
+        if ($tosExpiration !== null) {
+            $timestamp = strtotime((string) $tosExpiration);
+            if ($timestamp === false) {
+                throw new CloudFileException('Invalid STS credential expiration');
+            }
+            $credentialExpires = min($credentialExpires, $timestamp);
+        }
+
+        $simpleUpload = $this->getSimpleUploadInstance($this->adapterName);
+        $links = [];
+        foreach ($paths as $path) {
+            $now = time();
+            $ttl = min($expires, $credentialExpires - $now - 60);
+            if ($ttl <= 0) {
+                throw new CloudFileException('STS credential expires too soon');
+            }
+            $downloadName = $downloadNames[$path] ?? '';
+            $signingOptions = $options;
+            unset($signingOptions['filename'], $signingOptions['download']);
+            $signingOptions['method'] = 'GET';
+            $signingOptions['expires'] = $ttl;
+            if ($downloadName !== '') {
+                $signingOptions['filename'] = $downloadName;
+                $signingOptions['download'] = true;
+            }
+            $url = $simpleUpload->getPreSignedUrlByCredential($credential, $path, $signingOptions);
+            // 保留既有口径：文件服务返回截止时间，直接存储返回有效秒数。
+            $linkExpires = $this->adapterName === AdapterName::FILE_SERVICE ? $now + $ttl : $ttl;
+            $links[$path] = new FileLink($path, $url, $linkExpires, $downloadName);
+        }
+        return $links;
     }
 
     private function formatPaths(array $paths): array

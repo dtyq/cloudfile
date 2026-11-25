@@ -418,3 +418,39 @@ vendor/bin/phpunit tests/Integration/RealFileMutationTest.php
 ```
 
 默认不执行真实写入。配置只读，不复制或输出凭证；覆盖文件服务 OSS/TOS、直连 OSS/TOS。
+
+## 可选 STS 读取链接
+
+在目标 storage 上设置 `prefer_sts_for_links`，让 `getLinks()` 和 `getLink()` 优先使用临时凭证本地签名：
+
+```php
+'storages' => [
+    'file_service' => [
+        'adapter' => 'file_service',
+        'prefer_sts_for_links' => true,
+        'config' => [
+            'host' => 'https://files.example.com',
+            'platform' => 'tos',
+            'key' => 'your-storage-key',
+        ],
+    ],
+],
+```
+
+- 默认 `false`，仅接受布尔值；每个 storage 独立控制，关闭时保留原有取链行为。
+- 支持 OSS、TOS、MinIO，以及这些平台的 `file_service` 存储。需要已有可用的 STS 角色配置；LOCAL 和尚无 STS 签名实现的 OBS 保留原路线。
+- 开启后，整批文件复用一份凭证，不调用文件服务链接接口。原始对象 key 不做百分号替换，返回数组键与 `FileLink.path` 保持原值。
+- 支持的平台申请凭证或签名失败时抛异常，不静默回退旧取链。
+- 复用现有图片处理和下载名参数，签名请求固定为 GET。
+- 新入口申请一小时临时凭证，并复用已有凭证缓存。链接实际 TTL 取请求时长与凭证剩余寿命减 60 秒的较小值；请求一天不代表链接仍能存活一天。缓存凭证接近到期时，链接可能更短。
+- `FileLink.expires` 保留既有适配器口径：直接存储为实际 TTL 秒数，文件服务为实际截止时间戳。
+- 此开关优先于 `public_read`，返回有时效的存储 endpoint 签名链接，不保证原无签名公共域名、CDN 或 `use_cdn` 路线等价；开启前确认客户端可达该 endpoint。
+- `getMetas()` 等其他读取能力不受此开关控制。
+
+`tests/Integration/RealStsLinksTest.php` 使用外部配置，仅在随机目录创建合成文件，验证含 `%`、`%20`、`%25`、`%2F` 的近似文件名分别读回正确内容，最后删除并确认目录为空：
+
+```bash
+CLOUDFILE_RUN_REAL_TESTS=1 \
+CLOUDFILE_TEST_CONFIG=/absolute/path/to/storages.json \
+vendor/bin/phpunit tests/Integration/RealStsLinksTest.php
+```
