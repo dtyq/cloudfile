@@ -448,7 +448,7 @@ vendor/bin/phpunit tests/Integration/RealFileMutationTest.php
 - 公开链接同时移除 `response-*` 响应头覆盖参数，避免匿名请求仍被存储拒绝；`FileLink.download_name` 保留，但公开 URL 不保证强制修改下载文件名。[OSS 匿名请求限制](https://www.alibabacloud.com/help/en/oss/user-guide/0017-00000901)、[TOS 匿名请求限制](https://docs.volcengine.com/docs/torch-object-storage/explanation-of-anonymous-request-restrictions-for-object-storage?lang=zh)。不保证原公共域名、CDN 或 `use_cdn` 路线等价；开启前确认客户端可达该 endpoint。
 - `getMetas()` 等其他读取能力不受此开关控制。
 
-`tests/Integration/RealStsLinksTest.php` 使用外部配置，仅在随机目录创建合成文件，验证含 `%`、`%20`、`%25`、`%2F` 的近似文件名分别读回正确内容，最后删除并确认目录为空：
+`tests/Integration/RealStsLinksTest.php` 使用外部配置，仅在随机目录创建合成文件，验证含 `%`、`%20`、`%25`、`%2F` 的近似文件名分别读回正确内容，最后删除并确认目录为空。`testPublicLinks` 仅选择外部配置中 `public_read=true` 的真实公开存储，额外验证 `#`、`?`、追加 `swCache`、图片处理以及超过请求时长后的读取；缺少公开存储时明确跳过，不通过修改 SDK 标记或桶权限模拟公开桶：
 
 ```bash
 CLOUDFILE_RUN_REAL_TESTS=1 \
