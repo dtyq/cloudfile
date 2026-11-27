@@ -213,7 +213,7 @@ class StsLinksTest extends TestCase
     }
 
     /**
-     * 默认关闭及没有 STS 实现的平台沿用旧取链，不申请临时凭证。
+     * 默认关闭及没有 STS 实现的平台使用服务端取链，原始 key 不申请临时凭证。
      *
      * @dataProvider legacyModes
      */
@@ -221,17 +221,17 @@ class StsLinksTest extends TestCase
     {
         [$filesystem, $expand] = $this->filesystem(AdapterName::FILE_SERVICE, $platform);
         $filesystem->setPreferStsForLinks($enabled);
-        $expected = new FileLink('demo/30%25.txt', 'https://legacy.example.invalid/mock', 300);
+        $expected = new FileLink('demo/30%.txt', 'https://legacy.example.invalid/mock', 300);
         $expand->shouldReceive('getFileLinks')
             ->once()
             ->with([
-                'demo/30%25.txt',
+                'demo/30%.txt',
             ], [], 300, [])
             ->andReturn([
-                'demo/30%25.txt' => $expected,
+                'demo/30%.txt' => $expected,
             ]);
         self::assertSame([
-            'demo/30%25.txt' => $expected,
+            'demo/30%.txt' => $expected,
         ], $filesystem->getLinks([
             'demo/30%.txt',
         ], [], 300));

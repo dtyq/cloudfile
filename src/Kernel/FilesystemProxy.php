@@ -278,11 +278,7 @@ class FilesystemProxy extends Filesystem
     }
 
     /**
-     * 获取文件链接.
-     * @return array<string, FileLink>
-     */
-    /**
-     * 获取文件链接.
+     * 获取文件链接，文件服务使用原始路径协议并隔离历史编码缓存。
      * @return array<string, FileLink>
      */
     public function getLinks(array $paths, array $downloadNames = [], int $expires = 3600, array $options = []): array
@@ -306,7 +302,7 @@ class FilesystemProxy extends Filesystem
 
         // If public read and no download names, handle image processing and return concatenated links
         $list = [];
-        if ($this->isPublicRead && ! empty($this->publicDomain) && empty($downloadNames)) {
+        if ($this->adapterName !== AdapterName::FILE_SERVICE && $this->isPublicRead && ! empty($this->publicDomain) && empty($downloadNames)) {
             foreach ($paths as $path) {
                 // Build base URL
                 if ($platform === 'minio') {
@@ -329,10 +325,12 @@ class FilesystemProxy extends Filesystem
         }
         $isCache = (bool) ($options['cache'] ?? true);
         unset($options['cache']);
+        // 历史缓存以改写后的 key 索引，不能让字面百分号对象命中其他对象的旧链接。
+        $cachePrefix = $this->adapterName === AdapterName::FILE_SERVICE ? 'raw_' : '';
         $unCachePaths = $paths;
         if ($isCache) {
             foreach ($paths as $path) {
-                $cacheKey = md5($path . serialize($downloadNames[$path] ?? '') . $expires . serialize($options));
+                $cacheKey = $cachePrefix . md5($path . serialize($downloadNames[$path] ?? '') . $expires . serialize($options));
                 if ($data = $this->getCache($cacheKey)) {
                     if ($data instanceof FileLink) {
                         $list[$path] = $data;
@@ -356,7 +354,8 @@ class FilesystemProxy extends Filesystem
                         $port = ':' . $noSignUrlParsed['port'];
                     }
                     $noSignUrl = $noSignUrlParsed['scheme'] . '://' . $noSignUrlParsed['host'] . $port . $noSignUrlParsed['path'];
-                    $data->setUrl($noSignUrl);
+                    // 文件服务的原始路径由 SDK 编码，公开读保留图片参数并移除匿名访问不支持的参数。
+                    $data->setUrl($this->adapterName === AdapterName::FILE_SERVICE ? $this->buildPublicReadUrl($data->getUrl()) : $noSignUrl);
                     // 首次加载时，设置公共域名
                     $this->publicDomain = $noSignUrlParsed['scheme'] . '://' . $noSignUrlParsed['host'] . $port;
                     if ($this->adapterName === 'minio' && ! empty($this->config['bucket'])) {
@@ -364,7 +363,7 @@ class FilesystemProxy extends Filesystem
                     }
                 }
                 $list[$path] = $data;
-                $cacheKey = md5($path . serialize($downloadNames[$path] ?? '') . $expires . serialize($options));
+                $cacheKey = $cachePrefix . md5($path . serialize($downloadNames[$path] ?? '') . $expires . serialize($options));
                 $this->setCache($cacheKey, $data, $expires - 60);
             }
         }
@@ -777,8 +776,14 @@ class FilesystemProxy extends Filesystem
         return (string) $uri->withQuery(implode('&', $query));
     }
 
+    /**
+     * 文件服务固定接收原始 key，其他适配器沿用既有边界转换。
+     */
     private function formatPaths(array $paths): array
     {
+        if ($this->adapterName === AdapterName::FILE_SERVICE) {
+            return $paths;
+        }
         $filePaths = [];
         foreach ($paths as $path) {
             if (str_contains($path, '%')) {

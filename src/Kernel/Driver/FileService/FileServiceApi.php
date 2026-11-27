@@ -91,6 +91,9 @@ class FileServiceApi
         ], $options);
     }
 
+    /**
+     * 固定按原始对象路径查询元信息，不向调用方暴露路径模式开关。
+     */
     public function show(array $paths, array $options = []): array
     {
         $route = FileServiceRouteManager::get('show', $options);
@@ -99,11 +102,15 @@ class FileServiceApi
             'platform' => $this->platform,
             'key' => $this->key,
             'file_paths' => $paths,
+            'file_path_mode' => 'raw',
             // 宽松模式。检测文件是否存在，不抛异常，跳过.
             'file_check_mode' => 2,
         ], $options);
     }
 
+    /**
+     * 固定按原始对象路径取链，下载名映射使用同一份未经预编码的 key。
+     */
     public function getUrls(array $paths, array $downloadNames = [], int $expires = 3600, array $options = []): array
     {
         $route = FileServiceRouteManager::get('links', $options);
@@ -112,6 +119,7 @@ class FileServiceApi
             'platform' => $this->platform,
             'key' => $this->key,
             'file_paths' => $paths,
+            'file_path_mode' => 'raw',
             'download_names' => $downloadNames,
             'expires' => $expires,
             // 不检测文件是否存在

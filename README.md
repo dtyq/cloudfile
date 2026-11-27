@@ -39,6 +39,16 @@ CloudFile 支持 `league/flysystem: ^2.1.1 || ^3.35.3`，由 Composer 根据应�
 - [x] 批量获取可访问链接
 - [x] 获取文件元数据
 
+## 文件服务的原始对象路径
+
+`file_service` 驱动的取链和元信息请求固定使用 `file_path_mode=raw`，没有切换模式的配置。调用方继续传入原始对象 key，不要预先 URL 编码或解码；`a b.txt`、`a%20b.txt` 与 `a%2520b.txt` 是不同对象。下载名映射的 key、返回数组索引及对象 path 均使用原始值。
+
+升级 CloudFile 前必须先部署支持 raw 协议的 file-service。旧服务可能过滤未知字段，不能以 HTTP 200 作为支持证明；需用上述不同对象的独立内容读回验收。当前服务端 raw 读取支持 OSS、TOS 与 MinIO/S3，不对其他文件服务平台自动回退旧编码。
+
+`prefer_sts_for_links` 仍控制取链路线；关闭或省略时通过文件服务原始路径协议取链，显式开启时使用已有 STS 路线。raw 协议不改变凭证类型，使用临时凭证的链接仍受其寿命限制。公开读保留 SDK 编码的对象路径和图片处理参数，移除鉴权及需签名的响应头覆盖参数，`FileLink` 中的下载名仍保留。文件服务普通链接使用独立缓存命名空间，避免复用旧路径编码的缓存。
+
+真实文件服务验收入口为 `tests/Integration/RealFileServiceRawReadTest.php`。仅在 `CLOUDFILE_RUN_REAL_FILE_SERVICE_TESTS=1` 时执行，并通过 `CLOUDFILE_TEST_CONFIG` 只读加载授权测试配置：文件服务节点为 `file_service_private_test`、`file_service_public_test`、`file_service_sandbox_test`，对应原生 TOS 节点为 `tos_private_test`、`tos_public_test`、`tos_sandbox_test`。文件服务节点使用 `adapter=file_service`、`prefer_sts_for_links=false`，鉴权放在节点的 `options` 中；配置不提交到版本库。测试先核对桶映射，上传随机前缀的合成对象，再通过公开 SDK 方法验证并在 finally 精确删除、确认前缀为空。临时测试配置与短期 Token 由调用环境提供，默认不读取真实凭证或访问网络；需要测试 HTTP 客户端直连时可显式设置 `CLOUDFILE_HTTP_DIRECT=1`。
+
 ## 批量标签与文件删除
 
 ```php
