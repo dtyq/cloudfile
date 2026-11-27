@@ -54,6 +54,9 @@ class RealStsLinksTest extends CloudFileBaseTest
      */
     public function testPercentFilenames(string $storage): void
     {
+        if ($storage === '') {
+            $this->markTestSkipped('真实私有存储配置缺失');
+        }
         $filesystem = null;
         $policy = null;
         $prefix = '';
@@ -242,17 +245,7 @@ class RealStsLinksTest extends CloudFileBaseTest
      */
     public function publicStorages(): array
     {
-        $path = getenv('CLOUDFILE_TEST_CONFIG') ?: dirname(__DIR__, 2) . '/storages.json';
-        $storages = [];
-        if (getenv('CLOUDFILE_RUN_REAL_TESTS') === '1' && is_file($path)) {
-            $config = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
-            foreach ($config['storages'] as $name => $storage) {
-                if (($storage['public_read'] ?? false) === true) {
-                    $storages[] = [$name];
-                }
-            }
-        }
-        return $storages ?: [['']];
+        return $this->configuredStorages(true);
     }
 
     /**
@@ -267,24 +260,11 @@ class RealStsLinksTest extends CloudFileBaseTest
     }
 
     /**
-     * 复用已有真实配置中的四类存储。
+     * 选择当前外部配置中的私有存储，不依赖旧测试环境的固定名称。
      */
     public function storages(): array
     {
-        return [
-            [
-                'file_service_test',
-            ],
-            [
-                'file_service_tos_test',
-            ],
-            [
-                'aliyun_test',
-            ],
-            [
-                'tos_test',
-            ],
-        ];
+        return $this->configuredStorages(false);
     }
 
     /**
@@ -313,6 +293,24 @@ class RealStsLinksTest extends CloudFileBaseTest
     protected function getStorageName(): string
     {
         return 'file_service_test';
+    }
+
+    /**
+     * 按公开读语义筛选外部测试配置，未启用真实调用时不读取凭证。
+     */
+    private function configuredStorages(bool $publicRead): array
+    {
+        $path = getenv('CLOUDFILE_TEST_CONFIG') ?: dirname(__DIR__, 2) . '/storages.json';
+        $storages = [];
+        if (getenv('CLOUDFILE_RUN_REAL_TESTS') === '1' && is_file($path)) {
+            $config = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+            foreach ($config['storages'] as $name => $storage) {
+                if ((bool) ($storage['public_read'] ?? false) === $publicRead) {
+                    $storages[] = [$name];
+                }
+            }
+        }
+        return $storages ?: [['']];
     }
 
     /**
