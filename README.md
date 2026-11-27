@@ -442,9 +442,10 @@ vendor/bin/phpunit tests/Integration/RealFileMutationTest.php
 - 开启后，整批文件复用一份凭证，不调用文件服务链接接口。原始对象 key 不做百分号替换，返回数组键与 `FileLink.path` 保持原值。
 - 支持的平台申请凭证或签名失败时抛异常，不静默回退旧取链。
 - 复用现有图片处理和下载名参数，签名请求固定为 GET。
-- 新入口申请一小时临时凭证，并复用已有凭证缓存。链接实际 TTL 取请求时长与凭证剩余寿命减 60 秒的较小值；请求一天不代表链接仍能存活一天。缓存凭证接近到期时，链接可能更短。
+- 新入口申请一小时临时凭证，并复用已有凭证缓存。私有链接实际 TTL 取请求时长与凭证剩余寿命减 60 秒的较小值；请求一天不代表链接仍能存活一天。缓存凭证接近到期时，私有链接可能更短。
 - `FileLink.expires` 保留既有适配器口径：直接存储为实际 TTL 秒数，文件服务为实际截止时间戳。
-- 此开关优先于 `public_read`，返回有时效的存储 endpoint 签名链接，不保证原无签名公共域名、CDN 或 `use_cdn` 路线等价；开启前确认客户端可达该 endpoint。
+- 此开关保留 `public_read` 语义：公开桶返回不含签名、临时 Token 等鉴权参数的链接，私有桶返回有时效的签名链接。两者均复用 SDK 构造存储 endpoint、原始对象键编码和图片处理参数；公开链接的有效期元数据沿用请求时长，不按 STS 剩余寿命裁剪，URL 本身不依赖临时凭证过期。
+- 公开链接同时移除 `response-*` 响应头覆盖参数，避免匿名请求仍被存储拒绝；`FileLink.download_name` 保留，但公开 URL 不保证强制修改下载文件名。[OSS 匿名请求限制](https://www.alibabacloud.com/help/en/oss/user-guide/0017-00000901)、[TOS 匿名请求限制](https://docs.volcengine.com/docs/torch-object-storage/explanation-of-anonymous-request-restrictions-for-object-storage?lang=zh)。不保证原公共域名、CDN 或 `use_cdn` 路线等价；开启前确认客户端可达该 endpoint。
 - `getMetas()` 等其他读取能力不受此开关控制。
 
 `tests/Integration/RealStsLinksTest.php` 使用外部配置，仅在随机目录创建合成文件，验证含 `%`、`%20`、`%25`、`%2F` 的近似文件名分别读回正确内容，最后删除并确认目录为空：

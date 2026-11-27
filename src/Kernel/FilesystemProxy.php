@@ -35,6 +35,7 @@ use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\S3SimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\SimpleUpload\TosSimpleUpload;
 use Dtyq\CloudFile\Kernel\Utils\StrUtil;
 use Dtyq\SdkBase\SdkBase;
+use GuzzleHttp\Psr7\Uri;
 use InvalidArgumentException;
 use League\Flysystem\Filesystem;
 use League\Flysystem\FilesystemAdapter;
@@ -700,7 +701,7 @@ class FilesystemProxy extends Filesystem
     }
 
     /**
-     * 复用一份临时凭证签名整批原始对象键，链接寿命不超过凭证剩余时间。
+     * 复用一份临时凭证构造整批原始对象链接，只有私有读链接携带签名并受凭证寿命限制。
      *
      * @return array<string, FileLink>
      */
@@ -749,11 +750,31 @@ class FilesystemProxy extends Filesystem
                 $signingOptions['download'] = true;
             }
             $url = $simpleUpload->getPreSignedUrlByCredential($credential, $path, $signingOptions);
+            if ($this->isPublicRead) {
+                // 复用 SDK 的 endpoint 和对象键编码，公开读不携带临时鉴权或需要签名的响应头覆盖参数。
+                $url = $this->buildPublicReadUrl($url);
+                $ttl = $expires;
+            }
             // 保留既有口径：文件服务返回截止时间，直接存储返回有效秒数。
             $linkExpires = $this->adapterName === AdapterName::FILE_SERVICE ? $now + $ttl : $ttl;
             $links[$path] = new FileLink($path, $url, $linkExpires, $downloadName);
         }
         return $links;
+    }
+
+    /**
+     * 移除鉴权及匿名访问不支持的响应头覆盖参数，保留对象路径编码、图片处理等查询参数。
+     */
+    private function buildPublicReadUrl(string $url): string
+    {
+        $uri = new Uri($url);
+        $query = array_filter(explode('&', $uri->getQuery()), static function (string $parameter): bool {
+            $name = rawurldecode(explode('=', $parameter, 2)[0]);
+            $isSignature = preg_match('/^(?:x-(?:tos|oss|amz)-(?:algorithm|credential|date|expires|signedheaders|additional-headers|signature(?:-version)?|security-token|access-key-id)|ossaccesskeyid|awsaccesskeyid|signature|expires|security-token)$/i', $name);
+            $isResponseOverride = str_starts_with(strtolower($name), 'response-');
+            return ! $isSignature && ! $isResponseOverride;
+        });
+        return (string) $uri->withQuery(implode('&', $query));
     }
 
     private function formatPaths(array $paths): array

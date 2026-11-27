@@ -185,9 +185,9 @@ class StsLinksTest extends TestCase
     }
 
     /**
-     * 单文件短期限原样保留，不使用旧链接缓存或公有读拼接。
+     * 公开桶保留 SDK 构造的对象路径和业务参数，不携带鉴权参数或受凭证寿命裁剪。
      */
-    public function testSingleLinkUsesStsBeforePublicRead(): void
+    public function testPublicLinkDoesNotCarryStsSignature(): void
     {
         [$filesystem, $expand, $signer] = $this->filesystem();
         $filesystem->setIsPublicRead(true);
@@ -202,10 +202,14 @@ class StsLinksTest extends TestCase
         $signer->shouldReceive('getPreSignedUrlByCredential')
             ->once()
             ->withArgs(static function (array $credential, string $key, array $options): bool {
-                return $key === 'demo/30%.png' && $options['expires'] === 30;
+                return $key === 'demo/30%.png' && $options['expires'] > 0 && $options['expires'] <= 540;
             })
-            ->andReturn('https://sts.example.invalid/mock');
-        self::assertSame('https://sts.example.invalid/mock', $filesystem->getLink('demo/30%.png', '', 30)->getUrl());
+            ->andReturn('https://sts.example.invalid/demo/30%25.png?X-Tos-Algorithm=mock&X-Tos-Credential=mock&X-Tos-Date=mock&X-Tos-Expires=540&X-Tos-SignedHeaders=host&X-Tos-Signature=mock&X-Tos-Security-Token=mock&x-tos-process=image%2Fresize%2Cw_32&response-content-disposition=inline%3B');
+        $before = time();
+        $link = $filesystem->getLink('demo/30%.png', '', 86400);
+        self::assertSame('https://sts.example.invalid/demo/30%25.png?x-tos-process=image%2Fresize%2Cw_32', $link->getUrl());
+        self::assertGreaterThanOrEqual($before + 86400, $link->getExpires());
+        self::assertLessThanOrEqual(time() + 86400, $link->getExpires());
     }
 
     /**
